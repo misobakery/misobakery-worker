@@ -85,23 +85,38 @@
           <div class="bg-white rounded-3xl border border-warm-200 p-4 sm:p-5 shadow-sm space-y-3">
             <div class="flex items-center justify-between gap-2">
               <span id="kiosk-cam-status" class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-700">
-                <span class="w-2 h-2 rounded-full bg-stone-400"></span> <span data-i18n="camPreparing">카메라 준비중</span>
+                <span class="w-2 h-2 rounded-full bg-stone-400"></span> <span data-i18n="camStandbyBadge">카메라 꺼짐 (대기)</span>
               </span>
               <button type="button" id="btn-kiosk-cam-toggle" onclick="HR.toggleKioskCamera()" class="px-3 py-1.5 rounded-xl bg-warm-100 hover:bg-warm-200 text-xs font-bold text-warm-800 transition" data-i18n="camSwitchVirtual">가상 테스트 카메라 전환</button>
             </div>
             <div class="relative w-full aspect-[4/3] bg-warm-900 rounded-2xl overflow-hidden shadow-inner flex items-center justify-center">
               <video id="kiosk-video" autoplay playsinline muted class="w-full h-full object-cover transform -scale-x-100"></video>
-              <div id="kiosk-virtual-overlay" class="hidden absolute inset-0 bg-gradient-to-br from-stone-800 to-stone-900 flex flex-col items-center justify-center text-white p-5 text-center">
+
+              <!-- 카메라 꺼짐/대기 오버레이 (이름 선택 전 기본 상태) -->
+              <div id="kiosk-standby-overlay" class="absolute inset-0 bg-gradient-to-br from-warm-900 to-stone-800 flex flex-col items-center justify-center text-white p-5 text-center z-10">
+                <div class="w-16 h-16 rounded-full bg-white/10 border border-white/20 flex items-center justify-center mb-3">
+                  <svg class="w-8 h-8 text-stone-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </div>
+                <p class="text-sm font-bold text-stone-100" data-i18n="camStandbyTitle">카메라 대기 중 (꺼짐)</p>
+                <p class="text-xs text-stone-400 mt-1" data-i18n="camStandbyDesc">본인 이름을 선택하면 전면 카메라가 자동으로 켜집니다.</p>
+              </div>
+
+              <!-- 가상 테스트 카메라 오버레이 -->
+              <div id="kiosk-virtual-overlay" class="hidden absolute inset-0 bg-gradient-to-br from-stone-800 to-stone-900 flex flex-col items-center justify-center text-white p-5 text-center z-10">
                 <div class="w-20 h-20 rounded-full bg-amber-500/20 border-2 border-amber-400/70 flex items-center justify-center mb-3">
                   <svg class="w-10 h-10 text-amber-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                 </div>
                 <p class="text-sm font-bold text-amber-200" data-i18n="camVirtualTitle">가상 테스트 카메라 모드</p>
                 <p class="text-xs text-stone-300 mt-1" data-i18n="camVirtualDesc">출퇴근 시 테스트 인증 스냅샷이 자동 생성됩니다.</p>
               </div>
-              <div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+
+              <!-- 얼굴 위치 가이드라인 (카메라 작동 시에만 보임) -->
+              <div id="kiosk-cam-guide" class="hidden pointer-events-none absolute inset-0 flex items-center justify-center">
                 <div class="w-40 h-48 sm:w-44 sm:h-52 rounded-[42%] border-2 border-dashed border-white/50 shadow-sm"></div>
               </div>
-              <div class="pointer-events-none absolute bottom-2.5 inset-x-3 flex justify-center">
+              <div id="kiosk-cam-guide-text" class="hidden pointer-events-none absolute bottom-2.5 inset-x-3 flex justify-center">
                 <span class="px-3 py-1 rounded-full bg-black/55 backdrop-blur-sm text-[11px] font-medium text-white" data-i18n="camGuide">얼굴을 프레임 안에 맞추고 출근·퇴근을 눌러주세요</span>
               </div>
             </div>
@@ -274,7 +289,6 @@
     </header>
 
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 py-6 space-y-6">
-      <!-- TAB 1: 출퇴근 -->
       <section id="panel-logs" class="admin-panel space-y-5">
         <div id="today-kpi-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-3.5"></div>
         <div class="bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-4">
@@ -311,7 +325,6 @@
         </div>
       </section>
 
-      <!-- TAB 2: 급여 -->
       <section id="panel-payroll" class="admin-panel hidden space-y-5">
         <div class="bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-warm-200">
@@ -388,7 +401,6 @@
         </div>
       </section>
 
-      <!-- TAB 3: 휴일·휴가 -->
       <section id="panel-leaves" class="admin-panel hidden space-y-6">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-5 bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-5">
@@ -435,7 +447,6 @@
         </div>
       </section>
 
-      <!-- TAB 4: 직원 관리 -->
       <section id="panel-employees" class="admin-panel hidden space-y-5">
         <div class="bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -452,14 +463,11 @@
         </div>
       </section>
 
-      <!-- TAB 5: 설정 · 클라우드 연동 -->
       <section id="panel-settings" class="admin-panel hidden space-y-6">
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div class="lg:col-span-5 space-y-5">
             <div class="bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-4">
               <h2 class="text-base font-extrabold text-warm-900" data-i18n="setBasicTitle">매장 기본 정보 · 언어 · 관리자 PIN</h2>
-
-              <!-- 언어 선택 -->
               <div class="p-3.5 rounded-2xl bg-warm-50 border border-warm-200 space-y-2">
                 <label class="block text-xs font-extrabold text-wood-700" data-i18n="setLangLabel">시스템 표시 언어 (Language / ภาษา)</label>
                 <div class="grid grid-cols-3 gap-2">
@@ -469,7 +477,6 @@
                 </div>
                 <p class="text-[11px] text-stone-500" data-i18n="setLangHint">선택 시 관리자 대시보드 및 키오스크 전체 화면의 언어가 즉시 변경·저장됩니다.</p>
               </div>
-
               <form onsubmit="HR.saveStoreBasicSettings(event)" class="space-y-3.5 text-sm">
                 <div>
                   <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="setStoreNameLabel">매장 이름 (키오스크·명세서 표시)</label>
@@ -523,7 +530,6 @@
                 <button type="button" onclick="HR.clearCustomFirebaseConfig()" class="px-4 py-2.5 rounded-xl border border-stone-300 bg-white hover:bg-stone-50 text-stone-700 text-xs font-bold transition" data-i18n="setCloudReset">커스텀 연동 초기화</button>
               </div>
             </div>
-
             <div class="bg-warm-100/80 rounded-3xl border border-warm-200 p-5 sm:p-6 space-y-3">
               <h3 class="text-sm font-extrabold text-warm-900" data-i18n="guideTitle">GitHub Pages 고정 URL 배포 가이드 (3분 완성)</h3>
               <ol id="guide-steps-list" class="list-decimal list-inside space-y-2 text-xs text-warm-800 leading-relaxed" data-i18n-html="guideStepsHtml"></ol>
@@ -558,70 +564,32 @@
       <form onsubmit="HR.saveEmployee(event)" class="space-y-3.5 text-sm">
         <input type="hidden" id="emp-f-id" />
         <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFName">이름 *</label>
-            <input type="text" id="emp-f-name" required data-i18n-placeholder="empFNamePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFRole">직책 / 파트 *</label>
-            <input type="text" id="emp-f-role" required data-i18n-placeholder="empFRolePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" />
-          </div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFName">이름 *</label><input type="text" id="emp-f-name" required data-i18n-placeholder="empFNamePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFRole">직책 / 파트 *</label><input type="text" id="emp-f-role" required data-i18n-placeholder="empFRolePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFPin">출퇴근 4자리 PIN *</label>
-            <input type="text" id="emp-f-pin" required maxlength="4" pattern="\d{4}" data-i18n-placeholder="empFPinPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFPayType">급여 형태 *</label>
-            <select id="emp-f-paytype" onchange="HR.updateEmpRateLabel()" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold">
-              <option value="MONTHLY" data-i18n="optMonthly">월급제 (Monthly)</option>
-              <option value="HOURLY" data-i18n="optHourly">시급제 (Hourly)</option>
-            </select>
-          </div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFPin">출퇴근 4자리 PIN *</label><input type="text" id="emp-f-pin" required maxlength="4" pattern="\d{4}" data-i18n-placeholder="empFPinPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFPayType">급여 형태 *</label><select id="emp-f-paytype" onchange="HR.updateEmpRateLabel()" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold"><option value="MONTHLY" data-i18n="optMonthly">월급제 (Monthly)</option><option value="HOURLY" data-i18n="optHourly">시급제 (Hourly)</option></select></div>
         </div>
         <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label id="emp-f-rate-label" class="block text-xs font-bold text-stone-600 mb-1">월 기본급 *</label>
-            <input type="number" id="emp-f-rate" required min="0" step="any" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFBreak">휴게시간 (분)</label>
-            <input type="number" id="emp-f-break" min="0" max="180" value="60" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-          </div>
+          <div><label id="emp-f-rate-label" class="block text-xs font-bold text-stone-600 mb-1">월 기본급 *</label><input type="number" id="emp-f-rate" required min="0" step="any" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFBreak">휴게시간 (분)</label><input type="number" id="emp-f-break" min="0" max="180" value="60" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
         </div>
         <div class="grid grid-cols-3 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFStart">출근 시각</label>
-            <input type="time" id="emp-f-start" value="09:00" required class="w-full px-2.5 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFEnd">퇴근 시각</label>
-            <input type="time" id="emp-f-end" value="18:00" required class="w-full px-2.5 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-          </div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFStart">출근 시각</label><input type="time" id="emp-f-start" value="09:00" required class="w-full px-2.5 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFEnd">퇴근 시각</label><input type="time" id="emp-f-end" value="18:00" required class="w-full px-2.5 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
           <div>
             <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="empFDayOff">개인 주휴일</label>
             <select id="emp-f-dayoff" class="w-full px-2.5 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs font-bold">
               <option value="-1" data-i18n="optStoreRule">매장기준</option>
-              <option value="0" data-i18n="daySunFull">일요일</option>
-              <option value="1" data-i18n="dayMonFull">월요일</option>
-              <option value="2" data-i18n="dayTueFull">화요일</option>
-              <option value="3" data-i18n="dayWedFull">수요일</option>
-              <option value="4" data-i18n="dayThuFull">목요일</option>
-              <option value="5" data-i18n="dayFriFull">금요일</option>
-              <option value="6" data-i18n="daySatFull">토요일</option>
+              <option value="0" data-i18n="daySunFull">일요일</option><option value="1" data-i18n="dayMonFull">월요일</option><option value="2" data-i18n="dayTueFull">화요일</option>
+              <option value="3" data-i18n="dayWedFull">수요일</option><option value="4" data-i18n="dayThuFull">목요일</option><option value="5" data-i18n="dayFriFull">금요일</option><option value="6" data-i18n="daySatFull">토요일</option>
             </select>
           </div>
         </div>
         <div class="flex flex-wrap gap-4 pt-1">
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="emp-f-sso" checked class="w-4 h-4 accent-wood-600" />
-            <span class="text-xs font-semibold text-warm-800" data-i18n="empFSso">SSO 공제 대상</span>
-          </label>
-          <label class="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" id="emp-f-active" checked class="w-4 h-4 accent-emerald-600" />
-            <span class="text-xs font-semibold text-warm-800" data-i18n="empFActive">재직 중 (키오스크 표시)</span>
-          </label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="emp-f-sso" checked class="w-4 h-4 accent-wood-600" /><span class="text-xs font-semibold text-warm-800" data-i18n="empFSso">SSO 공제 대상</span></label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" id="emp-f-active" checked class="w-4 h-4 accent-emerald-600" /><span class="text-xs font-semibold text-warm-800" data-i18n="empFActive">재직 중 (키오스크 표시)</span></label>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t border-warm-200">
           <button type="button" onclick="HR.closeModal('modal-employee')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 font-bold text-xs" data-i18n="btnCancel">취소</button>
@@ -640,28 +608,13 @@
       </div>
       <form onsubmit="HR.saveAttendanceLog(event)" class="space-y-3.5 text-sm">
         <input type="hidden" id="log-f-id" />
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thEmployee">직원</label>
-          <select id="log-f-emp" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold"></select>
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFDate">근무 일자</label>
-          <input type="date" id="log-f-date" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-        </div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thEmployee">직원</label><select id="log-f-emp" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold"></select></div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFDate">근무 일자</label><input type="date" id="log-f-date" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
         <div class="grid grid-cols-2 gap-3">
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFIn">출근 시각</label>
-            <input type="time" id="log-f-in" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-          </div>
-          <div>
-            <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFOut">퇴근 시각 (미퇴근 시 공란)</label>
-            <input type="time" id="log-f-out" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-          </div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFIn">출근 시각</label><input type="time" id="log-f-in" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
+          <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFOut">퇴근 시각 (미퇴근 시 공란)</label><input type="time" id="log-f-out" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
         </div>
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFNote">관리자 메모</label>
-          <input type="text" id="log-f-note" data-i18n-placeholder="logFNotePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" />
-        </div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="logFNote">관리자 메모</label><input type="text" id="log-f-note" data-i18n-placeholder="logFNotePh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
         <div class="flex justify-end gap-2 pt-3 border-t border-warm-200">
           <button type="button" onclick="HR.closeModal('modal-log')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 font-bold text-xs" data-i18n="btnCancel">취소</button>
           <button type="submit" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white font-bold text-xs" data-i18n="btnSave">저장하기</button>
@@ -678,10 +631,7 @@
         <button type="button" onclick="HR.closeModal('modal-leave')" class="p-1.5 rounded-lg hover:bg-warm-100 text-stone-500">✕</button>
       </div>
       <form onsubmit="HR.saveLeave(event)" class="space-y-3.5 text-sm">
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thEmployee">직원</label>
-          <select id="leave-f-emp" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold"></select>
-        </div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thEmployee">직원</label><select id="leave-f-emp" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-bold"></select></div>
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="leaveFType">휴가 유형</label>
@@ -700,14 +650,8 @@
             </select>
           </div>
         </div>
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thDate">일자</label>
-          <input type="date" id="leave-f-date" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="leaveFReason">사유</label>
-          <input type="text" id="leave-f-reason" data-i18n-placeholder="leaveFReasonPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" />
-        </div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="thDate">일자</label><input type="date" id="leave-f-date" required class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono" /></div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="leaveFReason">사유</label><input type="text" id="leave-f-reason" data-i18n-placeholder="leaveFReasonPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
         <div class="flex justify-end gap-2 pt-3 border-t border-warm-200">
           <button type="button" onclick="HR.closeModal('modal-leave')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 font-bold text-xs" data-i18n="btnCancel">취소</button>
           <button type="submit" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white font-bold text-xs" data-i18n="btnSaveApprove">등록 및 승인</button>
@@ -724,20 +668,10 @@
         <button type="button" onclick="HR.closeModal('modal-adj')" class="p-1.5 rounded-lg hover:bg-warm-100 text-stone-500">✕</button>
       </div>
       <form onsubmit="HR.savePayrollAdjustment(event)" class="space-y-3.5 text-sm">
-        <input type="hidden" id="adj-f-emp" />
-        <input type="hidden" id="adj-f-month" />
-        <div>
-          <label class="block text-xs font-bold text-emerald-700 mb-1" data-i18n="adjFBonus">추가 수당 / 보너스 (+)</label>
-          <input type="number" id="adj-f-bonus" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-rose-700 mb-1" data-i18n="adjFDeduction">기타 공제 (-)</label>
-          <input type="number" id="adj-f-deduction" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" />
-        </div>
-        <div>
-          <label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="adjFMemo">조정 메모</label>
-          <input type="text" id="adj-f-memo" data-i18n-placeholder="adjFMemoPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" />
-        </div>
+        <input type="hidden" id="adj-f-emp" /><input type="hidden" id="adj-f-month" />
+        <div><label class="block text-xs font-bold text-emerald-700 mb-1" data-i18n="adjFBonus">추가 수당 / 보너스 (+)</label><input type="number" id="adj-f-bonus" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
+        <div><label class="block text-xs font-bold text-rose-700 mb-1" data-i18n="adjFDeduction">기타 공제 (-)</label><input type="number" id="adj-f-deduction" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
+        <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="adjFMemo">조정 메모</label><input type="text" id="adj-f-memo" data-i18n-placeholder="adjFMemoPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
         <div class="flex justify-end gap-2 pt-3 border-t border-warm-200">
           <button type="button" onclick="HR.closeModal('modal-adj')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 font-bold text-xs" data-i18n="btnCancel">취소</button>
           <button type="submit" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white font-bold text-xs" data-i18n="btnApply">적용하기</button>
@@ -805,8 +739,9 @@
         loaderTitle: '시스템을 불러오는 중입니다...', loaderSub: '데이터 연결 상태를 확인하고 있습니다.', loaderCloudSub: '클라우드 데이터베이스 연결 중...',
         syncChecking: '연결 확인중', syncCloud: '클라우드 실시간 동기화 중', syncCloudShort: '클라우드 실시간 동기화', syncLocal: '로컬 저장 모드',
         syncConnected: '연결됨 ({appId})', syncDisconnected: '미연동 (로컬 저장 모드)', toastCloudFallback: '클라우드 연결에 실패하여 로컬 저장 모드로 동작합니다.',
-        kioskSubtitle: '직원 출퇴근 체크 전용 키오스크', camPreparing: '카메라 준비중', camWorking: '전면 카메라 작동 중', camVirtualBadge: '가상 테스트 카메라',
-        camSwitchVirtual: '가상 테스트 카메라 전환', camTryReal: '실제 카메라 연결 시도', camVirtualTitle: '가상 테스트 카메라 모드', camVirtualDesc: '출퇴근 시 테스트 인증 스냅샷이 자동 생성됩니다.',
+        kioskSubtitle: '직원 출퇴근 체크 전용 키오스크', camStandbyBadge: '카메라 꺼짐 (대기)', camStandbyTitle: '카메라 대기 중 (꺼짐)',
+        camStandbyDesc: '본인 이름을 선택하면 전면 카메라가 자동으로 켜집니다.', camWorking: '전면 카메라 작동 중', camVirtualBadge: '가상 테스트 카메라',
+        camSwitchVirtual: '가상 테스트 카메라 전환', camTryReal: '실제 카메라 모드로 전환', camVirtualTitle: '가상 테스트 카메라 모드', camVirtualDesc: '출퇴근 시 테스트 인증 스냅샷이 자동 생성됩니다.',
         camGuide: '얼굴을 프레임 안에 맞추고 출근·퇴근을 눌러주세요', kioskTodayStatusTitle: '오늘 근무 현황', kioskTodayCount: '근무중 {w}명 / 오늘 총 {t}건',
         kioskTodayEmpty: '오늘 아직 출근 기록이 없습니다.', kioskWorkingStatus: '근무중', kioskNoActiveEmp: '등록된 재직 직원이 없습니다.',
         kioskStep1: '1. 본인 이름 선택', kioskStep1Sub: '(바로 PIN 입력도 가능)', notSelected: '선택 안함', kioskStep2: '2. 본인 4자리 PIN 입력',
@@ -894,8 +829,9 @@
         loaderTitle: 'กำลังโหลดระบบ...', loaderSub: 'กำลังตรวจสอบการเชื่อมต่อข้อมูล...', loaderCloudSub: 'กำลังเชื่อมต่อฐานข้อมูลคลาวด์...',
         syncChecking: 'กำลังตรวจสอบ', syncCloud: 'ซิงค์คลาวด์แบบเรียลไทม์', syncCloudShort: 'ซิงค์คลาวด์เรียลไทม์', syncLocal: 'โหมดจัดเก็บในเครื่อง',
         syncConnected: 'เชื่อมต่อแล้ว ({appId})', syncDisconnected: 'ยังไม่เชื่อมต่อคลาวด์ (โหมดในเครื่อง)', toastCloudFallback: 'เชื่อมต่อคลาวด์ไม่สำเร็จ เปลี่ยนเป็นโหมดจัดเก็บในเครื่องชั่วคราว',
-        kioskSubtitle: 'ตู้ลงเวลาเข้า-ออกงานสำหรับพนักงาน', camPreparing: 'กำลังเตรียมกล้อง', camWorking: 'กล้องหน้ากำลังทำงาน', camVirtualBadge: 'กล้องจำลองทดสอบ',
-        camSwitchVirtual: 'สลับเป็นกล้องทดสอบ', camTryReal: 'ลองเชื่อมต่อกล้องจริง', camVirtualTitle: 'โหมดกล้องจำลองทดสอบ', camVirtualDesc: 'ระบบจะสร้างภาพถ่ายยืนยันอัตโนมัติเมื่อลงเวลาเข้า-ออกงาน',
+        kioskSubtitle: 'ตู้ลงเวลาเข้า-ออกงานสำหรับพนักงาน', camStandbyBadge: 'กล้องปิดอยู่ (รอเลือกชื่อ)', camStandbyTitle: 'กล้องอยู่ในโหมดพัก (ปิดอยู่)',
+        camStandbyDesc: 'เมื่อเลือกชื่อของคุณ กล้องหน้าจะเปิดอัตโนมัติ', camWorking: 'กล้องหน้ากำลังทำงาน', camVirtualBadge: 'กล้องจำลองทดสอบ',
+        camSwitchVirtual: 'สลับเป็นกล้องทดสอบ', camTryReal: 'สลับเป็นโหมดกล้องจริง', camVirtualTitle: 'โหมดกล้องจำลองทดสอบ', camVirtualDesc: 'ระบบจะสร้างภาพถ่ายยืนยันอัตโนมัติเมื่อลงเวลาเข้า-ออกงาน',
         camGuide: 'จัดใบหน้าให้อยู่ในกรอบ แล้วกดปุ่มเข้างานหรือออกงาน', kioskTodayStatusTitle: 'สถานะการทำงานวันนี้', kioskTodayCount: 'กำลังทำงาน {w} คน / วันนี้ทั้งหมด {t} รายการ',
         kioskTodayEmpty: 'ยังไม่มีบันทึกการเข้างานวันนี้', kioskWorkingStatus: 'กำลังทำงาน', kioskNoActiveEmp: 'ยังไม่มีพนักงานที่ปฏิบัติงานอยู่',
         kioskStep1: '1. เลือกชื่อของคุณ', kioskStep1Sub: '(หรือกดรหัส PIN ได้เลย)', notSelected: 'ยังไม่เลือก', kioskStep2: '2. ใส่รหัส PIN 4 หลัก',
@@ -983,8 +919,9 @@
         loaderTitle: 'Loading system...', loaderSub: 'Checking data connection status...', loaderCloudSub: 'Connecting to cloud database...',
         syncChecking: 'Checking...', syncCloud: 'Cloud Real-time Sync', syncCloudShort: 'Cloud Real-time Sync', syncLocal: 'Local Storage Mode',
         syncConnected: 'Connected ({appId})', syncDisconnected: 'Not Connected (Local Mode)', toastCloudFallback: 'Cloud connection failed. Running in local storage mode.',
-        kioskSubtitle: 'Employee Time Clock Kiosk', camPreparing: 'Preparing camera...', camWorking: 'Front camera active', camVirtualBadge: 'Virtual Test Camera',
-        camSwitchVirtual: 'Switch to Virtual Camera', camTryReal: 'Connect Real Camera', camVirtualTitle: 'Virtual Test Camera Mode', camVirtualDesc: 'A test verification snapshot will be generated automatically on punch.',
+        kioskSubtitle: 'Employee Time Clock Kiosk', camStandbyBadge: 'Camera Off (Standby)', camStandbyTitle: 'Camera Standby (Off)',
+        camStandbyDesc: 'Select your name to automatically turn on the front camera.', camWorking: 'Front camera active', camVirtualBadge: 'Virtual Test Camera',
+        camSwitchVirtual: 'Switch to Virtual Camera', camTryReal: 'Switch to Real Camera Mode', camVirtualTitle: 'Virtual Test Camera Mode', camVirtualDesc: 'A test verification snapshot will be generated automatically on punch.',
         camGuide: 'Align your face in the frame and press Clock In or Clock Out', kioskTodayStatusTitle: "Today's Shift Status", kioskTodayCount: 'Working {w} / Total {t} logs today',
         kioskTodayEmpty: 'No clock-in records yet today.', kioskWorkingStatus: 'Working', kioskNoActiveEmp: 'No active employees registered.',
         kioskStep1: '1. Select Your Name', kioskStep1Sub: '(or enter PIN directly)', notSelected: 'None selected', kioskStep2: '2. Enter 4-Digit PIN',
@@ -1073,6 +1010,7 @@
     let activeAppId = 'store-hr-prod', syncMode = 'local', activeCustomConfigObj = null, unsubscribers = [];
     let routeMode = 'admin', isAdminUnlocked = false, activeAdminTab = 'logs', previewLanguage = null;
     let kioskSelectedEmpId = null, kioskPinBuffer = '', kioskStream = null, kioskVirtualMode = false, kioskConfirmTimer = null;
+    let camSessionToken = 0;
     let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {} };
     let pendingConfirmAction = null;
 
@@ -1367,8 +1305,11 @@
       document.getElementById('admin-app').classList.add('hidden');
       if (routeMode === 'kiosk') {
         document.getElementById('kiosk-app').classList.remove('hidden');
-        startKioskClock(); initKioskCamera(); renderAllActiveViews();
+        startKioskClock();
+        stopKioskCamera(); // 평소에는 카메라 꺼진 대기 상태로 시작
+        renderAllActiveViews();
       } else {
+        stopKioskCamera();
         try { isAdminUnlocked = window.sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) === 'true'; } catch (e) {}
         if (!isAdminUnlocked) { document.getElementById('admin-login-screen').classList.remove('hidden'); renderAllActiveViews(); }
         else { document.getElementById('admin-app').classList.remove('hidden'); renderAllActiveViews(); }
@@ -1405,30 +1346,97 @@
     function startKioskClock() { if (clockInterval) return; updateKioskClockOnce(); clockInterval = setInterval(updateKioskClockOnce, 1000); }
 
     function updateCameraStatusUI() {
-      const overlay = document.getElementById('kiosk-virtual-overlay'), status = document.getElementById('kiosk-cam-status'), btn = document.getElementById('btn-kiosk-cam-toggle');
-      if (!overlay || !status || !btn) return;
+      const standbyOverlay = document.getElementById('kiosk-standby-overlay');
+      const virtualOverlay = document.getElementById('kiosk-virtual-overlay');
+      const guide = document.getElementById('kiosk-cam-guide');
+      const guideText = document.getElementById('kiosk-cam-guide-text');
+      const status = document.getElementById('kiosk-cam-status');
+      const btn = document.getElementById('btn-kiosk-cam-toggle');
+      if (!standbyOverlay || !virtualOverlay || !status || !btn) return;
+
       if (kioskVirtualMode) {
-        overlay.classList.remove('hidden'); status.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800';
-        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span> ${escapeHtml(t('camVirtualBadge'))}`; btn.textContent = t('camTryReal');
+        standbyOverlay.classList.add('hidden');
+        virtualOverlay.classList.remove('hidden');
+        if (guide) guide.classList.remove('hidden');
+        if (guideText) guideText.classList.remove('hidden');
+        status.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800';
+        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-500"></span> ${escapeHtml(t('camVirtualBadge'))}`;
+        btn.textContent = t('camTryReal');
       } else if (kioskStream) {
-        overlay.classList.add('hidden'); status.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800';
-        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> ${escapeHtml(t('camWorking'))}`; btn.textContent = t('camSwitchVirtual');
+        standbyOverlay.classList.add('hidden');
+        virtualOverlay.classList.add('hidden');
+        if (guide) guide.classList.remove('hidden');
+        if (guideText) guideText.classList.remove('hidden');
+        status.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800';
+        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> ${escapeHtml(t('camWorking'))}`;
+        btn.textContent = t('camSwitchVirtual');
       } else {
+        standbyOverlay.classList.remove('hidden');
+        virtualOverlay.classList.add('hidden');
+        if (guide) guide.classList.add('hidden');
+        if (guideText) guideText.classList.add('hidden');
         status.className = 'inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-700';
-        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-stone-400"></span> ${escapeHtml(t('camPreparing'))}`; btn.textContent = t('camSwitchVirtual');
+        status.innerHTML = `<span class="w-2 h-2 rounded-full bg-stone-400"></span> ${escapeHtml(t('camStandbyBadge'))}`;
+        btn.textContent = t('camSwitchVirtual');
       }
     }
-    async function initKioskCamera() {
-      if (kioskVirtualMode) return;
+
+    function stopKioskCamera() {
+      camSessionToken++;
+      if (kioskStream) {
+        try { kioskStream.getTracks().forEach(tr => tr.stop()); } catch (e) {}
+        kioskStream = null;
+      }
       const video = document.getElementById('kiosk-video');
-      try {
-        if (!kioskStream && navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-          kioskStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
-          video.srcObject = kioskStream;
-        }
-      } catch (err) { kioskVirtualMode = true; }
+      if (video) {
+        try { video.srcObject = null; } catch (e) {}
+      }
       updateCameraStatusUI();
     }
+
+    async function initKioskCamera() {
+      if (kioskVirtualMode) {
+        updateCameraStatusUI();
+        return false;
+      }
+      if (kioskStream) {
+        updateCameraStatusUI();
+        return true;
+      }
+      const myToken = ++camSessionToken;
+      const video = document.getElementById('kiosk-video');
+      try {
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
+          if (myToken !== camSessionToken || kioskVirtualMode) {
+            stream.getTracks().forEach(tr => tr.stop());
+            updateCameraStatusUI();
+            return false;
+          }
+          kioskStream = stream;
+          video.srcObject = kioskStream;
+          await new Promise((resolve) => {
+            if (video.readyState >= 2 && video.videoWidth > 0) return resolve();
+            const onReady = () => { cleanup(); resolve(); };
+            const timer = setTimeout(() => { cleanup(); resolve(); }, 1200);
+            const cleanup = () => {
+              clearTimeout(timer);
+              video.removeEventListener('loadeddata', onReady);
+              video.removeEventListener('playing', onReady);
+            };
+            video.addEventListener('loadeddata', onReady);
+            video.addEventListener('playing', onReady);
+          });
+          updateCameraStatusUI();
+          return true;
+        }
+      } catch (err) {
+        kioskVirtualMode = true;
+      }
+      updateCameraStatusUI();
+      return false;
+    }
+
     function captureCompressedSelfie(empName, actionLabel) {
       const timeLabel = `${getTodayStr()} ${getNowTimeStr()}`;
       if (!kioskVirtualMode && kioskStream) {
@@ -1694,13 +1702,24 @@
 
       toggleKioskCamera() {
         kioskVirtualMode = !kioskVirtualMode;
-        if (kioskVirtualMode && kioskStream) { kioskStream.getTracks().forEach(tr => tr.stop()); kioskStream = null; }
-        else if (!kioskVirtualMode) initKioskCamera();
-        updateCameraStatusUI();
+        if (kioskVirtualMode) {
+          stopKioskCamera();
+        } else if (kioskSelectedEmpId) {
+          initKioskCamera();
+        } else {
+          updateCameraStatusUI();
+        }
       },
 
       selectKioskEmp(empId) {
-        kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView();
+        kioskSelectedEmpId = empId;
+        kioskPinBuffer = '';
+        updateKioskPinDots();
+        renderKioskView();
+        // 이름 선택 시 전면 카메라 자동 켜기
+        if (!kioskVirtualMode) {
+          initKioskCamera();
+        }
       },
 
       kioskPinPress(digit) {
@@ -1713,6 +1732,7 @@
               kioskSelectedEmpId = matched.id;
               renderKioskView();
               document.getElementById('kiosk-pin-hint').textContent = t('kioskPinHintMatched', { name: matched.name });
+              if (!kioskVirtualMode && !kioskStream) initKioskCamera();
             } else {
               document.getElementById('kiosk-pin-hint').textContent = t('kioskPinHintMismatch');
             }
@@ -1726,7 +1746,10 @@
 
       kioskPinClear(resetSelected = true) {
         kioskPinBuffer = ''; updateKioskPinDots();
-        if (resetSelected) kioskSelectedEmpId = null;
+        if (resetSelected) {
+          kioskSelectedEmpId = null;
+          stopKioskCamera(); // 초기화 시 카메라 다시 끄기
+        }
         renderKioskView();
       },
 
@@ -1741,7 +1764,10 @@
 
         if (direction === 'IN') {
           if (existing && existing.clockIn) { showToast(t('toastAlreadyIn', { name: emp.name, time: existing.clockIn }), 'warning'); this.kioskPinClear(true); return; }
+          if (!kioskVirtualMode && !kioskStream) await initKioskCamera();
           const inPhoto = captureCompressedSelfie(emp.name, t('selfieLabelIn'));
+          // 셀카 촬영 완료 즉시 카메라 끄기
+          stopKioskCamera();
           const inMin = timeToMinutes(nowTime), schedStart = timeToMinutes(emp.shiftStart) ?? 540, grace = Number(state.settings.lateGraceMinutes ?? 10);
           const lateMinutes = (inMin !== null && inMin > schedStart + grace) ? (inMin - schedStart) : 0;
           const newLog = { id: `att_${nowTs}_${emp.id}`, empId: emp.id, date: today, clockIn: nowTime, clockOut: '', clockInTs: nowTs, clockOutTs: null, lateMinutes, inPhoto, outPhoto: '', note: '' };
@@ -1750,7 +1776,10 @@
         } else {
           if (!existing || !existing.clockIn) { showToast(t('toastNoClockIn', { name: emp.name }), 'warning'); return; }
           if (existing.clockOut) { showToast(t('toastAlreadyOut', { name: emp.name, time: existing.clockOut }), 'warning'); this.kioskPinClear(true); return; }
+          if (!kioskVirtualMode && !kioskStream) await initKioskCamera();
           const outPhoto = captureCompressedSelfie(emp.name, t('selfieLabelOut'));
+          // 셀카 촬영 완료 즉시 카메라 끄기
+          stopKioskCamera();
           await persistDoc('attendance', existing.id, { ...existing, clockOut: nowTime, clockOutTs: nowTs, outPhoto });
           showKioskConfirmOverlay(emp.name, 'OUT', nowTime, outPhoto, t('kioskOutNote'));
         }
@@ -1961,118 +1990,3 @@
       async addHoliday() {
         const date = document.getElementById('input-hol-date').value, name = document.getElementById('input-hol-name').value.trim();
         if (!date || !name) { showToast(t('toastHolNeedFields'), 'warning'); return; }
-        const id = `hol_${Date.now()}`; await persistDoc('holidays', id, { id, date, name });
-        document.getElementById('input-hol-name').value = ''; showToast(t('toastHolAdded'), 'success');
-      },
-      async deleteHoliday(id) { await removeDoc('holidays', id); showToast(t('toastHolDeleted')); },
-
-      openLeaveModal() {
-        if (state.employees.length === 0) { showToast(t('toastNeedEmpFirst'), 'warning'); return; }
-        document.getElementById('leave-f-emp').innerHTML = state.employees.map(e => `<option value="${e.id}">${escapeHtml(e.name)}</option>`).join('');
-        document.getElementById('leave-f-date').value = getTodayStr(); document.getElementById('leave-f-reason').value = '';
-        this.syncLeavePaidDefault(); document.getElementById('modal-leave').classList.remove('hidden');
-      },
-      syncLeavePaidDefault() {
-        const tp = document.getElementById('leave-f-type').value;
-        document.getElementById('leave-f-paid').value = (tp === 'ANNUAL' || tp === 'SICK') ? 'true' : 'false';
-      },
-      async saveLeave(e) {
-        e.preventDefault(); const id = `lv_${Date.now()}`;
-        await persistDoc('leaves', id, { id, empId: document.getElementById('leave-f-emp').value, type: document.getElementById('leave-f-type').value, isPaid: document.getElementById('leave-f-paid').value === 'true', date: document.getElementById('leave-f-date').value, reason: document.getElementById('leave-f-reason').value.trim(), status: 'APPROVED' });
-        this.closeModal('modal-leave'); showToast(t('toastLeaveAdded'), 'success');
-      },
-      async setLeaveStatus(id, status) {
-        const target = state.leaves.find(x => x.id === id); if (!target) return;
-        await persistDoc('leaves', id, { ...target, status }); showToast(status === 'APPROVED' ? t('toastLeaveApproved') : t('toastLeaveRejected'), 'success');
-      },
-      async deleteLeave(id) { await removeDoc('leaves', id); showToast(t('toastLeaveDeleted')); },
-
-      updateEmpRateLabel() {
-        document.getElementById('emp-f-rate-label').textContent = document.getElementById('emp-f-paytype').value === 'MONTHLY' ? t('empFRateMonthly') : t('empFRateHourly');
-      },
-      openEmployeeModal(empId = null) {
-        if (empId) {
-          const emp = state.employees.find(e => e.id === empId); if (!emp) return;
-          document.getElementById('modal-emp-title').textContent = t('empModalEditTitle');
-          document.getElementById('emp-f-id').value = emp.id; document.getElementById('emp-f-name').value = emp.name; document.getElementById('emp-f-role').value = emp.role;
-          document.getElementById('emp-f-pin').value = emp.pin; document.getElementById('emp-f-paytype').value = emp.payType; document.getElementById('emp-f-rate').value = emp.baseRate;
-          document.getElementById('emp-f-break').value = emp.breakMinutes ?? 60; document.getElementById('emp-f-start').value = emp.shiftStart || '09:00'; document.getElementById('emp-f-end').value = emp.shiftEnd || '18:00';
-          document.getElementById('emp-f-dayoff').value = String(emp.weeklyDayOff ?? -1); document.getElementById('emp-f-sso').checked = emp.ssoEligible !== false; document.getElementById('emp-f-active').checked = emp.active !== false;
-        } else {
-          document.getElementById('modal-emp-title').textContent = t('empModalAddTitle');
-          document.getElementById('emp-f-id').value = ''; document.getElementById('emp-f-name').value = ''; document.getElementById('emp-f-role').value = '';
-          document.getElementById('emp-f-pin').value = String(Math.floor(1000 + Math.random() * 9000)); document.getElementById('emp-f-paytype').value = 'MONTHLY'; document.getElementById('emp-f-rate').value = '';
-          document.getElementById('emp-f-break').value = 60; document.getElementById('emp-f-start').value = '09:00'; document.getElementById('emp-f-end').value = '18:00';
-          document.getElementById('emp-f-dayoff').value = '-1'; document.getElementById('emp-f-sso').checked = true; document.getElementById('emp-f-active').checked = true;
-        }
-        this.updateEmpRateLabel(); document.getElementById('modal-employee').classList.remove('hidden');
-      },
-      async saveEmployee(e) {
-        e.preventDefault();
-        const id = document.getElementById('emp-f-id').value, pin = document.getElementById('emp-f-pin').value.trim();
-        const dup = state.employees.find(x => x.pin === pin && x.id !== id);
-        if (dup) { showToast(t('toastEmpPinDup', { pin, name: dup.name }), 'error'); return; }
-        const existing = id ? state.employees.find(x => x.id === id) : null, docId = id || `emp_${Date.now()}`;
-        await persistDoc('employees', docId, {
-          id: docId, name: document.getElementById('emp-f-name').value.trim(), role: document.getElementById('emp-f-role').value.trim(), pin,
-          payType: document.getElementById('emp-f-paytype').value, baseRate: Number(document.getElementById('emp-f-rate').value) || 0,
-          breakMinutes: parseInt(document.getElementById('emp-f-break').value, 10) || 0, shiftStart: document.getElementById('emp-f-start').value, shiftEnd: document.getElementById('emp-f-end').value,
-          weeklyDayOff: parseInt(document.getElementById('emp-f-dayoff').value, 10), ssoEligible: document.getElementById('emp-f-sso').checked, active: document.getElementById('emp-f-active').checked,
-          createdAt: existing?.createdAt || Date.now()
-        });
-        this.closeModal('modal-employee'); showToast(id ? t('toastEmpUpdated') : t('toastEmpSaved'), 'success');
-      },
-      async toggleEmployeeActive(empId) {
-        const emp = state.employees.find(e => e.id === empId); if (!emp) return;
-        const nextActive = emp.active === false;
-        await persistDoc('employees', empId, { ...emp, active: nextActive });
-        showToast(nextActive ? t('toastEmpRestored', { name: emp.name }) : t('toastEmpDeactivated', { name: emp.name }));
-      },
-      confirmDeleteEmployee(empId) {
-        const emp = state.employees.find(e => e.id === empId);
-        this.openConfirm(t('confirmDelEmpTitle'), t('confirmDelEmpMsg', { name: emp ? emp.name : '' }), async () => { await removeDoc('employees', empId); showToast(t('toastEmpDeleted')); });
-      },
-      confirmClearSampleData() {
-        this.openConfirm(t('confirmClearSampleTitle'), t('confirmClearSampleMsg'), async () => {
-          for (const x of state.employees.filter(e => e.isSample || e.id.startsWith('sample_'))) await removeDoc('employees', x.id);
-          for (const x of state.attendance.filter(a => a.isSample || a.id.startsWith('sample_'))) await removeDoc('attendance', x.id);
-          for (const x of state.leaves.filter(l => l.isSample || l.id.startsWith('sample_'))) await removeDoc('leaves', x.id);
-          for (const x of state.holidays.filter(h => h.isSample || h.id.startsWith('sample_'))) await removeDoc('holidays', x.id);
-          await persistSettings({ seeded: true }); showToast(t('toastSampleCleared'), 'success');
-        });
-      },
-
-      async saveStoreBasicSettings(e) {
-        e.preventDefault();
-        const storeName = document.getElementById('setting-store-name').value.trim(), newPin = document.getElementById('setting-new-pin').value.trim();
-        const patch = { storeName: storeName || DEFAULT_SETTINGS.storeName };
-        if (newPin) { if (!/^\d{6}$/.test(newPin)) { showToast(t('toastPinSixDigits'), 'error'); return; } patch.adminPin = newPin; }
-        await persistSettings(patch); document.getElementById('setting-new-pin').value = ''; showToast(t('toastBasicSaved'), 'success');
-      },
-      async saveCustomFirebaseConfig() {
-        const raw = document.getElementById('setting-firebase-json').value.trim();
-        if (!raw) { showToast(t('toastFbNeedJson'), 'warning'); return; }
-        try {
-          let parsed;
-          try { parsed = JSON.parse(raw); } catch {
-            parsed = JSON.parse(raw.replace(/const\s+\w+\s*=\s*/, '').replace(/;\s*$/, '').replace(/(['"])?([a-zA-Z0-9_]+)(['"])?\s*:/g, '"$2":').replace(/'/g, '"').replace(/,\s*}/g, '}'));
-          }
-          if (!parsed || !parsed.apiKey || !parsed.projectId) throw new Error(t('toastFbMissingField'));
-          safeLocalSet(LOCAL_FB_CFG_KEY, JSON.stringify(parsed)); activeCustomConfigObj = parsed;
-          showToast(t('toastFbSaved'), 'success'); await initDataLayer(); renderSettingsTab();
-        } catch (err) { showToast(t('toastFbBadJson', { err: err.message }), 'error'); }
-      },
-      async clearCustomFirebaseConfig() {
-        safeLocalRemove(LOCAL_FB_CFG_KEY); activeCustomConfigObj = null; document.getElementById('setting-firebase-json').value = '';
-        showToast(t('toastFbCleared'), 'info');
-        setTimeout(() => { const u = new URL(window.location.href); u.searchParams.delete('cfg'); window.location.href = u.toString(); }, 800);
-      }
-    };
-
-    window.addEventListener('load', async () => {
-      try { await initDataLayer(); } catch (err) { console.error(err); }
-      finally { document.getElementById('app-loader').classList.add('hidden'); applyRouteUI(); }
-    });
-  </script>
-</body>
-</html>
