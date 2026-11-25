@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>매장 인사·급여 통합 관리 시스템</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&family=Noto+Sans+Thai:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -590,9 +591,19 @@
           <button type="button" id="btn-tawi-then" onclick="HR.setTawiLang('thEn')" class="px-3 py-1 rounded-lg transition text-stone-600" data-i18n="tawiModeThEn">ไทย + EN (태국어·영문)</button>
         </div>
       </div>
+      <div id="payslip-lang-bar" class="hidden no-print flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-warm-200 text-xs">
+        <span class="font-bold text-stone-600" data-i18n="payslipLangToggleLabel">명세서 표시 언어</span>
+        <div class="flex items-center bg-warm-100 p-1 rounded-xl border border-warm-200 font-bold gap-1">
+          <button type="button" onclick="HR.setPayslipLang('th')" class="payslip-lang-btn-th px-2.5 py-1 rounded-lg transition">🇹🇭 ไทย</button>
+          <button type="button" onclick="HR.setPayslipLang('ko')" class="payslip-lang-btn-ko px-2.5 py-1 rounded-lg transition">🇰🇷 한국어</button>
+          <button type="button" onclick="HR.setPayslipLang('en')" class="payslip-lang-btn-en px-2.5 py-1 rounded-lg transition">🇺🇸 EN</button>
+        </div>
+      </div>
       <div id="payslip-print-area" class="space-y-4"></div>
-      <div class="flex justify-end gap-2 pt-5 mt-5 border-t border-warm-200 no-print">
+      <div class="flex flex-wrap justify-end gap-2 pt-5 mt-5 border-t border-warm-200 no-print">
         <button type="button" onclick="HR.closeModal('modal-payslip')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 text-xs font-bold" data-i18n="btnClose">닫기</button>
+        <button type="button" id="btn-save-png" onclick="HR.downloadPayslipImage()" class="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold transition" data-i18n="btnSavePng">이미지 저장 (PNG)</button>
+        <button type="button" id="btn-share-line" onclick="HR.sharePayslipImage()" class="px-4 py-2 rounded-xl bg-[#06C755] hover:bg-[#05b34c] text-white text-xs font-bold transition" data-i18n="btnShareLine">LINE 공유</button>
         <button type="button" onclick="window.print()" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white text-xs font-bold flex items-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
           <span data-i18n="btnPrintPdf">인쇄 / PDF 저장</span>
