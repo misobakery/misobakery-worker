@@ -267,19 +267,18 @@
         </div>
       </section>
 
-      <!-- TAB 2: 급여 정산 & 월 마감 -->
+      <!-- TAB 2: 급여 정산 & 태국 세무·신고·이체 -->
       <section id="panel-payroll" class="admin-panel hidden space-y-5">
         <div class="bg-white rounded-3xl border border-warm-200 p-5 sm:p-6 shadow-sm space-y-5">
           <div class="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-warm-200">
-            <div><h2 class="text-lg font-extrabold text-warm-900" data-i18n="payrollTitle">월별 급여 자동 정산표</h2><p class="text-xs text-stone-500 mt-0.5" data-i18n="payrollDesc">출퇴근·OT·휴일특근·지각·무급휴가·SSO 및 개별 상여/공제가 자동 합산됩니다.</p></div>
+            <div><h2 class="text-lg font-extrabold text-warm-900" data-i18n="payrollTitle">월별 급여 자동 정산표</h2><p class="text-xs text-stone-500 mt-0.5" data-i18n="payrollDesc">출퇴근·OT·휴일특근·지각·무급휴가·SSO·원천세(PND.1) 및 상여/공제가 자동 합산됩니다.</p></div>
             <div class="flex flex-wrap items-center gap-2">
-              <div class="flex items-center bg-warm-100 p-1 rounded-xl border border-warm-200 text-xs font-bold">
-                <button type="button" id="btn-curr-THB" onclick="HR.setCurrency('THB')" class="px-3 py-1.5 rounded-lg transition bg-white text-wood-700 shadow-sm">฿ THB</button>
-                <button type="button" id="btn-curr-KRW" onclick="HR.setCurrency('KRW')" class="px-3 py-1.5 rounded-lg transition text-stone-600">₩ KRW</button>
-              </div>
               <input type="month" id="payroll-month-input" onchange="HR.renderPayrollTab()" class="px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs font-bold text-warm-900" />
               <button type="button" id="btn-close-payroll" onclick="HR.confirmClosePayroll()" class="px-3.5 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold transition" data-i18n="btnClosePayroll">월 마감 확정</button>
-              <button type="button" onclick="HR.exportPayrollCSV()" class="px-3.5 py-2 rounded-xl border border-warm-300 bg-white hover:bg-warm-50 text-warm-900 text-xs font-bold transition" data-i18n="btnExportPayrollCsv">급여대장 CSV</button>
+              <button type="button" onclick="HR.exportPayrollCSV()" class="px-3 py-2 rounded-xl border border-warm-300 bg-white hover:bg-warm-50 text-warm-900 text-xs font-bold transition" data-i18n="btnExportPayrollCsv">급여대장 CSV</button>
+              <button type="button" onclick="HR.exportSsoCSV()" class="px-3 py-2 rounded-xl border border-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-900 text-xs font-bold transition" data-i18n="btnExportSsoCsv">SSO 신고 CSV · สปส.1-10</button>
+              <button type="button" onclick="HR.exportBankTransferCSV()" class="px-3 py-2 rounded-xl border border-amber-300 bg-amber-50 hover:bg-amber-100 text-wood-700 text-xs font-bold transition" data-i18n="btnExportBankCsv">급여 이체 CSV</button>
+              <button type="button" onclick="HR.openAnnualTaxModal()" class="px-3 py-2 rounded-xl bg-warm-900 hover:bg-black text-white text-xs font-bold transition" data-i18n="btnOpenAnnualTax">연간 세무 요약 · 50 Tawi</button>
             </div>
           </div>
 
@@ -302,7 +301,7 @@
             </div>
             <div class="bg-white rounded-xl p-3 border border-warm-200 flex flex-col gap-2">
               <div class="flex items-center justify-between gap-2">
-                <div><span class="font-bold text-warm-900 block" data-i18n="ruleSsoTitle">SSO 사회보장 공제 · 기준일수</span><span class="text-stone-500 text-[11px]" data-i18n="ruleSsoDesc">2026년 기준 요율(%) 및 월 상한액(฿) 직접 설정 가능 (KRW 4.5%)</span></div>
+                <div><span class="font-bold text-warm-900 block" data-i18n="ruleSsoTitle">태국 SSO 사회보장 공제 · 기준일수</span><span class="text-stone-500 text-[11px]" data-i18n="ruleSsoDesc">2026년 태국 SSO 기준 요율(%) · 월 상한(฿), 직원·사업주 동일 적용</span></div>
                 <input type="checkbox" id="rule-sso-enabled" onchange="HR.savePayrollRules()" class="w-4 h-4 accent-wood-600 cursor-pointer shrink-0" />
               </div>
               <div class="flex flex-wrap items-center justify-end gap-2 pt-1.5 border-t border-warm-100">
@@ -310,7 +309,7 @@
                   <span data-i18n="ruleSsoRateLabel">요율(%)</span>
                   <input type="number" id="rule-sso-rate" step="0.1" min="0" max="30" onchange="HR.savePayrollRules()" class="w-14 px-1.5 py-1 rounded-lg border border-warm-300 bg-warm-50 font-mono font-bold text-center text-warm-900" />
                 </label>
-                <label id="wrap-sso-cap" class="flex items-center gap-1 text-[11px] font-semibold text-stone-600">
+                <label class="flex items-center gap-1 text-[11px] font-semibold text-stone-600">
                   <span data-i18n="ruleSsoCapLabel">상한(฿)</span>
                   <input type="number" id="rule-sso-cap" step="1" min="0" onchange="HR.savePayrollRules()" class="w-16 px-1.5 py-1 rounded-lg border border-warm-300 bg-warm-50 font-mono font-bold text-center text-warm-900" />
                 </label>
@@ -326,7 +325,7 @@
           <div id="payroll-kpi-grid" class="grid grid-cols-2 lg:grid-cols-4 gap-3"></div>
           <div class="overflow-x-auto rounded-2xl border border-warm-200">
             <table class="w-full text-left border-collapse text-sm">
-              <thead><tr class="bg-warm-100 text-warm-800 text-xs border-b border-warm-200"><th class="py-3 px-4 font-extrabold" data-i18n="thPayEmp">직원 / 급여형태</th><th class="py-3 px-4 font-extrabold" data-i18n="thPayWork">근무 / OT / 무급</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayBase">기본급</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayPlus">OT·특근·상여</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayMinus">지각·무급·기타공제</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPaySso">SSO 공제</th><th class="py-3 px-4 font-extrabold text-right text-wood-700" data-i18n="thPayNet">실수령액</th><th class="py-3 px-4 font-extrabold text-center" data-i18n="thPayAction">조정 / 명세서</th></tr></thead>
+              <thead><tr class="bg-warm-100 text-warm-800 text-xs border-b border-warm-200"><th class="py-3 px-4 font-extrabold" data-i18n="thPayEmp">직원 / 급여형태</th><th class="py-3 px-4 font-extrabold" data-i18n="thPayWork">근무 / OT / 무급</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayBase">기본급</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayPlus">OT·특근·상여</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayMinus">지각·무급·기타공제</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPaySsoEmp">SSO 공제</th><th class="py-3 px-4 font-extrabold text-right" data-i18n="thPayWht">원천세 PND.1</th><th class="py-3 px-4 font-extrabold text-right text-wood-700" data-i18n="thPayNet">실수령액</th><th class="py-3 px-4 font-extrabold text-center" data-i18n="thPayAction">조정 / 명세서</th></tr></thead>
               <tbody id="payroll-tbody" class="divide-y divide-warm-200 bg-white"></tbody>
             </table>
           </div>
@@ -343,7 +342,7 @@
               <h3 class="text-sm font-bold text-warm-900" data-i18n="holTitle">특별 공휴일 / 임시 휴무 등록</h3>
               <div class="flex flex-col sm:flex-row gap-2">
                 <input type="date" id="input-hol-date" class="px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs font-mono font-bold" />
-                <input type="text" id="input-hol-name" data-i18n-placeholder="holPlaceholder" placeholder="예: 송크란 연휴, 설날" class="flex-1 px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs" />
+                <input type="text" id="input-hol-name" data-i18n-placeholder="holPlaceholder" placeholder="예: 송크란 연휴, 러이끄라통(이펭)" class="flex-1 px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs" />
                 <button type="button" onclick="HR.addHoliday()" class="px-4 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white text-xs font-bold shrink-0" data-i18n="btnAdd">추가</button>
               </div>
               <div id="holidays-list" class="space-y-2 max-h-64 overflow-y-auto pt-1"></div>
@@ -395,6 +394,8 @@
               </div>
               <form onsubmit="HR.saveStoreBasicSettings(event)" class="space-y-3.5 text-sm">
                 <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="setStoreNameLabel">매장 이름 (키오스크·명세서 표시)</label><input type="text" id="setting-store-name" required class="w-full px-3.5 py-2.5 rounded-xl border border-warm-300 bg-warm-50 font-bold text-warm-900" /></div>
+                <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="setStoreTaxIdLabel">매장 사업자/세무번호 (Tax ID)</label><input type="text" id="setting-store-taxid" data-i18n-placeholder="setStoreTaxIdPh" class="w-full px-3.5 py-2.5 rounded-xl border border-warm-300 bg-warm-50 font-mono text-xs text-warm-900" /></div>
+                <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="setStoreAddrLabel">매장 주소 (명세서·세무서류 표시)</label><input type="text" id="setting-store-address" data-i18n-placeholder="setStoreAddrPh" class="w-full px-3.5 py-2.5 rounded-xl border border-warm-300 bg-warm-50 text-xs text-warm-900" /></div>
                 <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="setNewPinLabel">관리자 로그인 6자리 PIN 변경 (비워두면 유지)</label><input type="password" id="setting-new-pin" inputmode="numeric" maxlength="6" data-i18n-placeholder="setNewPinPh" placeholder="새 6자리 숫자 입력" class="w-full px-3.5 py-2.5 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
                 <button type="submit" class="w-full py-2.5 rounded-xl bg-wood-600 hover:bg-wood-700 text-white text-sm font-bold transition" data-i18n="setBasicSave">기본 설정 저장</button>
               </form>
@@ -514,7 +515,7 @@
     </div>
   </div>
 
-  <!-- 모달 5: 상여/공제 조정 -->
+  <!-- 모달 5: 상여/공제 & 월 원천징수세(PND.1) 조정 -->
   <div id="modal-adj" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-md w-full p-6 space-y-4 shadow-2xl">
       <div class="flex items-center justify-between border-b border-warm-200 pb-3"><h3 id="modal-adj-title" class="text-lg font-extrabold text-warm-900">상여 / 공제</h3><button type="button" onclick="HR.closeModal('modal-adj')" class="p-1.5 rounded-lg hover:bg-warm-100 text-stone-500">✕</button></div>
@@ -522,15 +523,22 @@
         <input type="hidden" id="adj-f-emp" /><input type="hidden" id="adj-f-month" />
         <div><label class="block text-xs font-bold text-emerald-700 mb-1" data-i18n="adjFBonus">추가 수당 / 보너스 (+)</label><input type="number" id="adj-f-bonus" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
         <div><label class="block text-xs font-bold text-rose-700 mb-1" data-i18n="adjFDeduction">기타 공제 (-)</label><input type="number" id="adj-f-deduction" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" /></div>
+        <div>
+          <div class="flex items-center justify-between gap-2 mb-1">
+            <label class="block text-xs font-bold text-indigo-800" data-i18n="adjFWht">월 원천징수세 PND.1 / ภ.ง.ด.1 (-)</label>
+            <button type="button" onclick="HR.estimateMonthlyWht()" class="px-2.5 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-indigo-800 text-[11px] font-bold transition" data-i18n="btnAutoWht">태국 세법 자동 추산</button>
+          </div>
+          <input type="number" id="adj-f-wht" min="0" step="any" value="0" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 font-mono font-bold" />
+        </div>
         <div><label class="block text-xs font-bold text-stone-600 mb-1" data-i18n="adjFMemo">조정 메모</label><input type="text" id="adj-f-memo" data-i18n-placeholder="adjFMemoPh" class="w-full px-3 py-2 rounded-xl border border-warm-300 bg-warm-50" /></div>
         <div class="flex justify-end gap-2 pt-3 border-t border-warm-200"><button type="button" onclick="HR.closeModal('modal-adj')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 font-bold text-xs" data-i18n="btnCancel">취소</button><button type="submit" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white font-bold text-xs" data-i18n="btnApply">적용하기</button></div>
       </form>
     </div>
   </div>
 
-  <!-- 모달 6: 급여명세서 -->
+  <!-- 모달 6: 급여명세서 & 50 Tawi 요약 인쇄 -->
   <div id="modal-payslip" class="hidden fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
-    <div class="bg-white rounded-3xl max-w-xl w-full p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
+    <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
       <div id="payslip-print-area" class="space-y-5"></div>
       <div class="flex justify-end gap-2 pt-5 mt-5 border-t border-warm-200 no-print">
         <button type="button" onclick="HR.closeModal('modal-payslip')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 text-xs font-bold" data-i18n="btnClose">닫기</button>
@@ -555,6 +563,40 @@
     </div>
   </div>
 
+  <!-- 모달 8: 연간 세무 요약 (50 Tawi / PND.1 Kor) -->
+  <div id="modal-annual-tax" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-5xl w-full p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-warm-200 pb-3">
+        <div>
+          <h3 id="annual-modal-title" class="text-lg font-extrabold text-warm-900">연간 세무 요약 · 50 Tawi / PND.1 Kor</h3>
+          <p class="text-xs text-stone-500 mt-0.5" data-i18n="annualModalDesc">마감 확정 월은 잠금 스냅샷을, 미마감 월은 실시간 계산값을 합산합니다.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <select id="annual-year-select" onchange="HR.renderAnnualTaxModal()" class="px-3 py-2 rounded-xl border border-warm-300 bg-warm-50 text-xs font-mono font-bold text-warm-900"></select>
+          <span id="annual-closed-badge" class="px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-bold"></span>
+          <button type="button" onclick="HR.exportAnnualTaxCSV()" class="px-3.5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white text-xs font-bold transition" data-i18n="btnExportAnnualCsv">연간 세무 CSV</button>
+          <button type="button" onclick="HR.closeModal('modal-annual-tax')" class="p-1.5 rounded-lg hover:bg-warm-100 text-stone-500">✕</button>
+        </div>
+      </div>
+      <div class="overflow-auto rounded-2xl border border-warm-200 flex-1">
+        <table class="w-full text-left border-collapse text-sm">
+          <thead>
+            <tr class="bg-warm-100 text-warm-800 text-xs border-b border-warm-200">
+              <th class="py-3 px-4 font-extrabold" data-i18n="thEmployee">직원</th>
+              <th class="py-3 px-4 font-extrabold text-right" data-i18n="thAnnualGross">연간 총급여</th>
+              <th class="py-3 px-4 font-extrabold text-right" data-i18n="thAnnualWht">연간 원천세</th>
+              <th class="py-3 px-4 font-extrabold text-right" data-i18n="thAnnualEmpSso">직원 SSO</th>
+              <th class="py-3 px-4 font-extrabold text-right" data-i18n="thAnnualErSso">사업주 SSO</th>
+              <th class="py-3 px-4 font-extrabold text-right text-wood-700" data-i18n="thAnnualNet">연간 실지급액</th>
+              <th class="py-3 px-4 font-extrabold text-center" data-i18n="thActions">관리</th>
+            </tr>
+          </thead>
+          <tbody id="annual-tax-tbody" class="divide-y divide-warm-200 bg-white"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <script src="./i18n.js"></script>
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
@@ -570,6 +612,9 @@
 
     const DEFAULT_SETTINGS = {
       storeName: '매장 인사·급여 관리',
+      storeTaxId: '',
+      storeAddress: 'Chiang Rai, Thailand',
+      timezone: 'Asia/Bangkok',
       adminPin: '000000',
       language: 'ko',
       currency: 'THB',
@@ -580,7 +625,6 @@
       ssoEnabled: true,
       ssoRateThb: 5,
       ssoCapThb: 875,
-      ssoRateKrw: 4.5,
       standardWorkDays: 26,
       weeklyOffDays: [0],
       seeded: false
@@ -647,9 +691,9 @@
     function escapeHtml(s) {
       return String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
-    function formatMoney(amt, curr = state.settings.currency) {
+    function formatMoney(amt) {
       const n = Math.round(Number(amt) || 0);
-      return curr === 'KRW' ? `₩${n.toLocaleString('ko-KR')}` : `฿${n.toLocaleString('en-US')}`;
+      return `฿${n.toLocaleString('en-US')}`;
     }
     function showToast(msg, type = 'info') {
       const c = document.getElementById('toast-container'), el = document.createElement('div');
@@ -734,7 +778,7 @@
           try {
             const p = JSON.parse(e.newValue);
             state = {
-              settings: { ...DEFAULT_SETTINGS, ...(p.settings || {}) },
+              settings: { ...DEFAULT_SETTINGS, ...(p.settings || {}), currency: 'THB' },
               employees: p.employees || [],
               attendance: p.attendance || [],
               leaves: p.leaves || [],
@@ -760,7 +804,7 @@
             renderAllActiveViews(); resolve();
           }
         };
-        unsubscribers.push(onSnapshot(fsDoc('config', 'store_settings'), s => { if (s.exists()) state.settings = { ...DEFAULT_SETTINGS, ...s.data() }; init.settings = true; check(); renderAllActiveViews(); }, () => { init.settings = true; check(); }));
+        unsubscribers.push(onSnapshot(fsDoc('config', 'store_settings'), s => { if (s.exists()) state.settings = { ...DEFAULT_SETTINGS, ...s.data(), currency: 'THB' }; init.settings = true; check(); renderAllActiveViews(); }, () => { init.settings = true; check(); }));
         unsubscribers.push(onSnapshot(fsCol('employees'), s => { state.employees = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); init.employees = true; check(); renderAllActiveViews(); }, () => { init.employees = true; check(); }));
         unsubscribers.push(onSnapshot(fsCol('attendance'), s => { state.attendance = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.clockInTs || 0) - (a.clockInTs || 0)); renderAllActiveViews(); }));
         unsubscribers.push(onSnapshot(fsCol('leaves'), s => { state.leaves = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.date || '').localeCompare(a.date || '')); renderAllActiveViews(); }));
@@ -772,7 +816,7 @@
     }
 
     async function persistSettings(ns) {
-      state.settings = { ...state.settings, ...ns };
+      state.settings = { ...state.settings, ...ns, currency: 'THB' };
       if (syncMode === 'cloud' && db && currentUser) await setDoc(fsDoc('config', 'store_settings'), state.settings);
       else saveLocalFallbackData();
       renderAllActiveViews();
@@ -799,7 +843,7 @@
         try {
           const p = JSON.parse(raw);
           state = {
-            settings: { ...DEFAULT_SETTINGS, ...(p.settings || {}) },
+            settings: { ...DEFAULT_SETTINGS, ...(p.settings || {}), currency: 'THB' },
             employees: p.employees || [],
             attendance: p.attendance || [],
             leaves: p.leaves || [],
@@ -831,9 +875,9 @@
     async function seedInitialSampleData() {
       const today = getTodayStr(), ym = getCurrentMonthStr(), nowTs = Date.now();
       const emps = [
-        { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, ssoEligible: true, active: true, idNumber: '1-1002-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
-        { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, ssoEligible: true, active: true, idNumber: '1-1005-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
-        { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, ssoEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Bangkok Bank', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
+        { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, ssoEligible: true, active: true, idNumber: '1-5799-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn (KBank)', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
+        { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, ssoEligible: true, active: true, idNumber: '1-5799-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
+        { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, ssoEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Krungthai', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
       ];
       const logs = [
         { id: 'sample_att_1', empId: 'sample_emp_1', date: today, clockIn: '08:54', clockOut: '', clockInTs: nowTs - 7200000, clockOutTs: null, lateMinutes: 0, inPhoto: generateVirtualSelfieJpeg('민지 (Minji)', 'IN · Clock In', `${today} 08:54`, '#1E293B'), outPhoto: '', note: 'Sample', isSample: true },
@@ -848,7 +892,7 @@
       for (const e of emps) await persistDoc('employees', e.id, e);
       for (const l of logs) await persistDoc('attendance', l.id, l);
       await persistDoc('leaves', 'sample_lv_1', { id: 'sample_lv_1', empId: 'sample_emp_2', date: `${ym}-05`, type: 'UNPAID', isPaid: false, status: 'APPROVED', reason: 'Personal (Sample)', isSample: true });
-      await persistDoc('holidays', 'sample_hol_1', { id: 'sample_hol_1', date: `${ym}-15`, name: 'Store Holiday (Sample)', isSample: true });
+      await persistDoc('holidays', 'sample_hol_1', { id: 'sample_hol_1', date: `${ym}-15`, name: 'Chiang Rai Store Holiday (Sample)', isSample: true });
     }
 
     function detectRouteMode() { return (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase() === 'kiosk' ? 'kiosk' : 'admin'; }
@@ -1018,17 +1062,25 @@
       const otPay = Math.round(to * hrEq * otMult), holidayPay = Math.round(th * hrEq * holMult);
       const lateDeduction = state.settings.lateDeductionEnabled ? Math.round((tl / 60) * hrEq) : 0;
       const unpaidDeduction = emp.payType === 'MONTHLY' ? Math.round(unpaidDays * (basePay / stdDays)) : 0;
-      const adj = state.adjustments[`${targetMonth}_${emp.id}`] || { bonus: 0, deduction: 0, memo: '' }, extraBonus = Number(adj.bonus) || 0, extraDeduction = Number(adj.deduction) || 0;
-      let ssoDeduction = 0;
-      if (state.settings.ssoEnabled && emp.ssoEligible) {
-        if (state.settings.currency === 'THB') {
-          ssoDeduction = Math.min(Number(state.settings.ssoCapThb ?? 875), Math.round(basePay * ((Number(state.settings.ssoRateThb ?? 5)) / 100)));
-        } else {
-          ssoDeduction = Math.round(Math.max(0, basePay + otPay + holidayPay + extraBonus) * ((Number(state.settings.ssoRateKrw ?? 4.5)) / 100));
-        }
-      }
-      const totalEarnings = basePay + otPay + holidayPay + extraBonus, totalDeductions = lateDeduction + unpaidDeduction + extraDeduction + ssoDeduction;
-      return { emp, empId: emp.id, targetMonth, workDaysCount: logs.length, totalWorkedHours: +tw.toFixed(1), totalOtHours: +to.toFixed(1), totalHolidayHours: +th.toFixed(1), totalLateMins: tl, unpaidLeaveDays: unpaidDays, basePay, otPay, holidayPay, extraBonus, extraDeduction, adjMemo: adj.memo || '', lateDeduction, unpaidDeduction, ssoDeduction, totalEarnings, totalDeductions, netPay: Math.max(0, totalEarnings - totalDeductions), transferPaid: false, transferPaidAt: '' };
+      const adj = state.adjustments[`${targetMonth}_${emp.id}`] || { bonus: 0, deduction: 0, wht: 0, memo: '' };
+      const extraBonus = Number(adj.bonus) || 0, extraDeduction = Number(adj.deduction) || 0, whtDeduction = Number(adj.wht) || 0;
+      const ssoDeduction = (state.settings.ssoEnabled && emp.ssoEligible)
+        ? Math.min(Number(state.settings.ssoCapThb ?? 875), Math.round(basePay * ((Number(state.settings.ssoRateThb ?? 5)) / 100)))
+        : 0;
+      const employerSso = ssoDeduction;
+      const totalEarnings = basePay + otPay + holidayPay + extraBonus;
+      const totalDeductions = lateDeduction + unpaidDeduction + extraDeduction + ssoDeduction + whtDeduction;
+      const netPay = Math.max(0, totalEarnings - totalDeductions);
+      const employerTotalCost = totalEarnings + employerSso;
+      return {
+        emp, empId: emp.id, targetMonth, workDaysCount: logs.length,
+        totalWorkedHours: +tw.toFixed(1), totalOtHours: +to.toFixed(1), totalHolidayHours: +th.toFixed(1),
+        totalLateMins: tl, unpaidLeaveDays: unpaidDays,
+        basePay, otPay, holidayPay, extraBonus, extraDeduction, adjMemo: adj.memo || '',
+        lateDeduction, unpaidDeduction, ssoDeduction, whtDeduction, employerSso,
+        totalEarnings, totalDeductions, netPay, employerTotalCost,
+        transferPaid: false, transferPaidAt: ''
+      };
     }
 
     function getPayrollViewData(targetMonth) {
@@ -1037,16 +1089,80 @@
         return {
           isClosed: true,
           closure: cl,
-          currency: cl.currency || state.settings.currency,
           rules: cl.rulesSnapshot || state.settings,
-          rows: cl.rows.map(r => ({
-            ...r,
-            empId: r.empId || r.empSnapshot?.id,
-            emp: r.empSnapshot || { id: r.empId, name: t('deletedEmp'), role: '', payType: 'MONTHLY', baseRate: 0, idNumber: '', bankName: '', bankAccount: '' }
-          }))
+          rows: cl.rows.map(r => {
+            const whtDeduction = Number(r.whtDeduction) || 0;
+            const employerSso = r.employerSso ?? r.ssoDeduction ?? 0;
+            const totalEarnings = Number(r.totalEarnings) || 0;
+            const employerTotalCost = r.employerTotalCost ?? (totalEarnings + employerSso);
+            return {
+              ...r,
+              whtDeduction,
+              employerSso,
+              employerTotalCost,
+              empId: r.empId || r.empSnapshot?.id,
+              emp: r.empSnapshot || { id: r.empId, name: t('deletedEmp'), role: '', payType: 'MONTHLY', baseRate: 0, idNumber: '', bankName: '', bankAccount: '' }
+            };
+          })
         };
       }
-      return { isClosed: false, closure: null, currency: state.settings.currency, rules: state.settings, rows: state.employees.map(emp => calculateMonthlyPayroll(emp, targetMonth)) };
+      return { isClosed: false, closure: null, rules: state.settings, rows: state.employees.map(emp => calculateMonthlyPayroll(emp, targetMonth)) };
+    }
+
+    function computeThaiProgressiveTax(annualIncome, annualSso) {
+      const expDed = Math.min(100000, annualIncome * 0.5);
+      const personalDed = 60000;
+      const ssoAnnualDed = Math.min(10500, annualSso);
+      let taxable = Math.max(0, annualIncome - expDed - personalDed - ssoAnnualDed);
+      const brackets = [
+        [150000, 0],
+        [150000, 0.05],
+        [200000, 0.10],
+        [250000, 0.15],
+        [250000, 0.20],
+        [1000000, 0.25],
+        [3000000, 0.30],
+        [Infinity, 0.35]
+      ];
+      let tax = 0;
+      for (const [span, rate] of brackets) {
+        if (taxable <= 0) break;
+        const slice = Math.min(taxable, span);
+        tax += slice * rate;
+        taxable -= slice;
+      }
+      return tax;
+    }
+
+    function computeAnnualTaxSummary(year) {
+      let closedCount = 0;
+      const map = new Map();
+      for (let m = 1; m <= 12; m++) {
+        const ym = `${year}-${String(m).padStart(2, '0')}`;
+        const view = getPayrollViewData(ym);
+        if (view.isClosed) closedCount++;
+        view.rows.forEach(r => {
+          const hasActivity = view.isClosed || r.workDaysCount > 0 || r.extraBonus > 0 || r.whtDeduction > 0 || r.extraDeduction > 0;
+          if (!hasActivity) return;
+          const eid = r.empId || r.emp.id;
+          const liveEmp = state.employees.find(e => e.id === eid);
+          if (!map.has(eid)) {
+            map.set(eid, {
+              empId: eid,
+              emp: liveEmp ? { ...r.emp, ...liveEmp } : r.emp,
+              gross: 0, wht: 0, empSso: 0, erSso: 0, net: 0, months: []
+            });
+          }
+          const rec = map.get(eid);
+          rec.gross += Number(r.totalEarnings) || 0;
+          rec.wht += Number(r.whtDeduction) || 0;
+          rec.empSso += Number(r.ssoDeduction) || 0;
+          rec.erSso += Number(r.employerSso) || 0;
+          rec.net += Number(r.netPay) || 0;
+          rec.months.push({ ym, isClosed: view.isClosed, gross: Number(r.totalEarnings) || 0, wht: Number(r.whtDeduction) || 0, empSso: Number(r.ssoDeduction) || 0, erSso: Number(r.employerSso) || 0, net: Number(r.netPay) || 0 });
+        });
+      }
+      return { year, closedCount, items: Array.from(map.values()) };
     }
 
     function renderLogsTab() {
@@ -1087,22 +1203,17 @@
 
     function renderPayrollTab() {
       const mEl = document.getElementById('payroll-month-input'); if (!mEl.value) mEl.value = getCurrentMonthStr();
-      const tm = mEl.value, isThb = state.settings.currency !== 'KRW';
-      document.getElementById('btn-curr-THB').className = `px-3 py-1.5 rounded-lg transition ${isThb ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
-      document.getElementById('btn-curr-KRW').className = `px-3 py-1.5 rounded-lg transition ${!isThb ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
+      const tm = mEl.value;
       document.getElementById('rule-ot-mult').value = state.settings.otMultiplier ?? 1.5;
       document.getElementById('rule-hol-mult').value = state.settings.holidayOtMultiplier ?? 2.0;
       document.getElementById('rule-late-grace').value = state.settings.lateGraceMinutes ?? 10;
       document.getElementById('rule-late-enabled').checked = state.settings.lateDeductionEnabled !== false;
       document.getElementById('rule-sso-enabled').checked = state.settings.ssoEnabled !== false;
       document.getElementById('rule-work-days').value = String(state.settings.standardWorkDays || 26);
-      document.getElementById('rule-sso-rate').value = isThb ? (state.settings.ssoRateThb ?? 5) : (state.settings.ssoRateKrw ?? 4.5);
-      const capEl = document.getElementById('rule-sso-cap'), wrapCap = document.getElementById('wrap-sso-cap');
-      capEl.value = state.settings.ssoCapThb ?? 875;
-      capEl.disabled = !isThb;
-      if (wrapCap) wrapCap.classList.toggle('hidden', !isThb);
+      document.getElementById('rule-sso-rate').value = state.settings.ssoRateThb ?? 5;
+      document.getElementById('rule-sso-cap').value = state.settings.ssoCapThb ?? 875;
 
-      const view = getPayrollViewData(tm), rows = view.rows, curr = view.currency;
+      const view = getPayrollViewData(tm), rows = view.rows;
       const closeBtn = document.getElementById('btn-close-payroll'), banner = document.getElementById('payroll-closure-banner');
       if (view.isClosed) {
         closeBtn.classList.add('hidden');
@@ -1114,15 +1225,19 @@
         banner.classList.add('hidden');
       }
 
-      const sP = rows.reduce((s, r) => s + r.otPay + r.holidayPay + r.extraBonus, 0), sD = rows.reduce((s, r) => s + r.totalDeductions, 0), sN = rows.reduce((s, r) => s + r.netPay, 0);
+      const sumEmployerCost = rows.reduce((s, r) => s + r.employerTotalCost, 0);
+      const sumTotalSso = rows.reduce((s, r) => s + r.ssoDeduction + r.employerSso, 0);
+      const sumWht = rows.reduce((s, r) => s + r.whtDeduction, 0);
+      const sumNet = rows.reduce((s, r) => s + r.netPay, 0);
+
       document.getElementById('payroll-kpi-grid').innerHTML = `
-        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayStaff'))}</span><p class="text-xl font-extrabold text-warm-900 mt-1">${rows.length}${escapeHtml(t('unitPerson'))}</p></div>
-        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayPlus'))}</span><p class="text-xl font-extrabold text-emerald-700 mt-1">+${formatMoney(sP, curr)}</p></div>
-        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayMinus'))}</span><p class="text-xl font-extrabold text-rose-700 mt-1">-${formatMoney(sD, curr)}</p></div>
-        <div class="bg-wood-600 text-white rounded-2xl p-4 shadow-sm"><span class="text-xs text-amber-100">${escapeHtml(t('kpiPayNet'))}</span><p class="text-xl font-extrabold mt-1">${formatMoney(sN, curr)}</p></div>`;
+        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayEmployerCost'))}</span><p class="text-xl font-extrabold text-warm-900 mt-1">${formatMoney(sumEmployerCost)}</p></div>
+        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayTotalSso'))}</span><p class="text-xl font-extrabold text-sky-800 mt-1">${formatMoney(sumTotalSso)}</p></div>
+        <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayTotalWht'))}</span><p class="text-xl font-extrabold text-indigo-800 mt-1">${formatMoney(sumWht)}</p></div>
+        <div class="bg-wood-600 text-white rounded-2xl p-4 shadow-sm"><span class="text-xs text-amber-100">${escapeHtml(t('kpiPayNet'))}</span><p class="text-xl font-extrabold mt-1">${formatMoney(sumNet)}</p></div>`;
 
       const tb = document.getElementById('payroll-tbody');
-      if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('payrollEmpty'))}</td></tr>`; return; }
+      if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('payrollEmpty'))}</td></tr>`; return; }
       tb.innerHTML = rows.map(r => {
         const eid = r.empId || r.emp.id;
         const actionBtns = view.isClosed
@@ -1134,11 +1249,12 @@
         return `<tr class="hover:bg-warm-50/80 transition">
           <td class="py-3.5 px-4"><div class="font-bold text-warm-900">${escapeHtml(r.emp.name)}</div><div class="text-xs text-stone-500">${escapeHtml(r.emp.role)} · <span class="font-bold text-wood-600">${escapeHtml(r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))}</span></div></td>
           <td class="py-3.5 px-4 text-xs"><div class="font-bold text-warm-900">${escapeHtml(t('payWorkSummary', { d: r.workDaysCount, h: r.totalWorkedHours }))}</div><div class="text-stone-500">${escapeHtml(t('payOtUnpaidSummary', { ot: r.totalOtHours, hol: r.totalHolidayHours, u: r.unpaidLeaveDays }))}</div></td>
-          <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(r.basePay, curr)}</td>
-          <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold">+${formatMoney(r.otPay + r.holidayPay + r.extraBonus, curr)}</td>
-          <td class="py-3.5 px-4 text-right font-mono text-xs text-rose-600 font-bold">-${formatMoney(r.lateDeduction + r.unpaidDeduction + r.extraDeduction, curr)}</td>
-          <td class="py-3.5 px-4 text-right font-mono text-xs text-stone-600">-${formatMoney(r.ssoDeduction, curr)}</td>
-          <td class="py-3.5 px-4 text-right font-mono font-extrabold text-base text-wood-700">${formatMoney(r.netPay, curr)}</td>
+          <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(r.basePay)}</td>
+          <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold">+${formatMoney(r.otPay + r.holidayPay + r.extraBonus)}</td>
+          <td class="py-3.5 px-4 text-right font-mono text-xs text-rose-600 font-bold">-${formatMoney(r.lateDeduction + r.unpaidDeduction + r.extraDeduction)}</td>
+          <td class="py-3.5 px-4 text-right font-mono text-xs text-stone-600">-${formatMoney(r.ssoDeduction)}</td>
+          <td class="py-3.5 px-4 text-right font-mono text-xs text-indigo-700 font-bold">-${formatMoney(r.whtDeduction)}</td>
+          <td class="py-3.5 px-4 text-right font-mono font-extrabold text-base text-wood-700">${formatMoney(r.netPay)}</td>
           <td class="py-3.5 px-4 text-center whitespace-nowrap space-x-1">${actionBtns}</td>
         </tr>`;
       }).join('');
@@ -1166,7 +1282,7 @@
       const dl = t('daysFull');
       grid.innerHTML = state.employees.map(emp => {
         const act = emp.active !== false, off = (typeof emp.weeklyDayOff === 'number' && emp.weeklyDayOff >= 0) ? dl[emp.weeklyDayOff] : t('optStoreRule');
-        const hireStr = emp.hireDate ? `${emp.hireDate}${emp.resignDate ? ` (${t('empCardResign')} ${emp.resignDate})` : ''}` : '';
+        const hireStr = emp.hireDate ? `${emp.hireDate}${emp.resignDate ? ` (${t('empCardResign')} ${emp.resignDate})` : ''}` : (emp.resignDate ? `${t('empCardResign')} ${emp.resignDate}` : '');
         const bankStr = (emp.bankName || emp.bankAccount) ? `${emp.bankName || ''} ${emp.bankAccount || ''}`.trim() : '';
         return `<div class="rounded-2xl border p-5 flex flex-col justify-between space-y-4 transition ${act ? 'bg-warm-50/70 border-warm-200 hover:shadow-md' : 'bg-stone-100/80 border-stone-200 opacity-75'}">
           <div class="space-y-3">
@@ -1187,6 +1303,8 @@
 
     function renderSettingsTab() {
       const ni = document.getElementById('setting-store-name'); if (ni && document.activeElement !== ni) ni.value = state.settings.storeName || DEFAULT_SETTINGS.storeName;
+      const ti = document.getElementById('setting-store-taxid'); if (ti && document.activeElement !== ti) ti.value = state.settings.storeTaxId || '';
+      const ai = document.getElementById('setting-store-address'); if (ai && document.activeElement !== ai) ai.value = state.settings.storeAddress ?? 'Chiang Rai, Thailand';
       document.getElementById('setting-kiosk-url').value = buildRoleUrl('kiosk');
       document.getElementById('setting-admin-url').value = buildRoleUrl('admin');
       const ft = document.getElementById('setting-firebase-json'); if (ft && document.activeElement !== ft && activeCustomConfigObj && !ft.value) ft.value = JSON.stringify(activeCustomConfigObj, null, 2);
@@ -1311,12 +1429,19 @@
         downloadCSV(`${t('csvLogsPrefix')}_${m}.csv`, rows); showToast(t('toastCsvLogsDone'), 'success');
       },
       renderPayrollTab() { renderPayrollTab(); },
-      async setCurrency(c) { await persistSettings({ currency: c }); showToast(t('toastCurrencyChanged', { curr: c === 'THB' ? t('currThbName') : t('currKrwName') })); },
       async savePayrollRules() {
-        const isThb = state.settings.currency !== 'KRW', rv = parseFloat(document.getElementById('rule-sso-rate').value), cv = parseInt(document.getElementById('rule-sso-cap').value, 10);
-        const patch = { otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5, holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0, lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0, lateDeductionEnabled: document.getElementById('rule-late-enabled').checked, ssoEnabled: document.getElementById('rule-sso-enabled').checked, standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26 };
-        if (isThb) { patch.ssoRateThb = Number.isNaN(rv) ? 5 : rv; patch.ssoCapThb = Number.isNaN(cv) ? 875 : cv; } else { patch.ssoRateKrw = Number.isNaN(rv) ? 4.5 : rv; }
-        await persistSettings(patch); showToast(t('toastRulesSaved'), 'success');
+        const rv = parseFloat(document.getElementById('rule-sso-rate').value), cv = parseInt(document.getElementById('rule-sso-cap').value, 10);
+        await persistSettings({
+          otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5,
+          holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0,
+          lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0,
+          lateDeductionEnabled: document.getElementById('rule-late-enabled').checked,
+          ssoEnabled: document.getElementById('rule-sso-enabled').checked,
+          ssoRateThb: Number.isNaN(rv) ? 5 : rv,
+          ssoCapThb: Number.isNaN(cv) ? 875 : cv,
+          standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26
+        });
+        showToast(t('toastRulesSaved'), 'success');
       },
       confirmClosePayroll() {
         const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr();
@@ -1328,13 +1453,14 @@
               empSnapshot: { id: emp.id, name: emp.name, role: emp.role, payType: emp.payType, baseRate: emp.baseRate, idNumber: emp.idNumber || '', bankName: emp.bankName || '', bankAccount: emp.bankAccount || '' },
               workDaysCount: r.workDaysCount, totalWorkedHours: r.totalWorkedHours, totalOtHours: r.totalOtHours, totalHolidayHours: r.totalHolidayHours, totalLateMins: r.totalLateMins, unpaidLeaveDays: r.unpaidLeaveDays,
               basePay: r.basePay, otPay: r.otPay, holidayPay: r.holidayPay, extraBonus: r.extraBonus, extraDeduction: r.extraDeduction, adjMemo: r.adjMemo,
-              lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay,
+              lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, whtDeduction: r.whtDeduction, employerSso: r.employerSso,
+              totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay, employerTotalCost: r.employerTotalCost,
               transferPaid: false, transferPaidAt: ''
             };
           });
           await persistDoc('payroll_closures', m, {
-            id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: state.settings.currency,
-            rulesSnapshot: { otMultiplier: state.settings.otMultiplier ?? 1.5, holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0, ssoRateThb: state.settings.ssoRateThb ?? 5, ssoCapThb: state.settings.ssoCapThb ?? 875, ssoRateKrw: state.settings.ssoRateKrw ?? 4.5, standardWorkDays: state.settings.standardWorkDays ?? 26 },
+            id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: 'THB',
+            rulesSnapshot: { otMultiplier: state.settings.otMultiplier ?? 1.5, holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0, ssoRateThb: state.settings.ssoRateThb ?? 5, ssoCapThb: state.settings.ssoCapThb ?? 875, standardWorkDays: state.settings.standardWorkDays ?? 26 },
             rows
           });
           showToast(t('toastPayrollClosed', { month: m }), 'success');
@@ -1358,26 +1484,51 @@
       openAdjModal(empId) {
         const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(); if (state.closures[m]) return;
         const emp = state.employees.find(e => e.id === empId); if (!emp) return;
-        const adj = state.adjustments[`${m}_${empId}`] || { bonus: 0, deduction: 0, memo: '' };
+        const adj = state.adjustments[`${m}_${empId}`] || { bonus: 0, deduction: 0, wht: 0, memo: '' };
         document.getElementById('modal-adj-title').textContent = t('adjModalTitle', { name: emp.name, month: m });
         document.getElementById('adj-f-emp').value = empId; document.getElementById('adj-f-month').value = m;
-        document.getElementById('adj-f-bonus').value = adj.bonus || 0; document.getElementById('adj-f-deduction').value = adj.deduction || 0; document.getElementById('adj-f-memo').value = adj.memo || '';
+        document.getElementById('adj-f-bonus').value = adj.bonus || 0;
+        document.getElementById('adj-f-deduction').value = adj.deduction || 0;
+        document.getElementById('adj-f-wht').value = adj.wht || 0;
+        document.getElementById('adj-f-memo').value = adj.memo || '';
         document.getElementById('modal-adj').classList.remove('hidden');
+      },
+      estimateMonthlyWht() {
+        const empId = document.getElementById('adj-f-emp').value, month = document.getElementById('adj-f-month').value;
+        const emp = state.employees.find(e => e.id === empId); if (!emp) return;
+        const r = calculateMonthlyPayroll(emp, month);
+        const curBonus = Number(document.getElementById('adj-f-bonus').value) || 0;
+        const monthlyGross = r.basePay + r.otPay + r.holidayPay + curBonus;
+        const annualIncome = monthlyGross * 12;
+        const annualTax = computeThaiProgressiveTax(annualIncome, r.ssoDeduction * 12);
+        document.getElementById('adj-f-wht').value = Math.round(annualTax / 12);
+        showToast(t('toastWhtEstimated'), 'info');
       },
       async savePayrollAdjustment(e) {
         e.preventDefault(); const empId = document.getElementById('adj-f-emp').value, month = document.getElementById('adj-f-month').value, docId = `${month}_${empId}`;
-        await persistDoc('payroll_adjustments', docId, { id: docId, month, empId, bonus: Number(document.getElementById('adj-f-bonus').value) || 0, deduction: Number(document.getElementById('adj-f-deduction').value) || 0, memo: document.getElementById('adj-f-memo').value.trim() });
+        await persistDoc('payroll_adjustments', docId, {
+          id: docId, month, empId,
+          bonus: Number(document.getElementById('adj-f-bonus').value) || 0,
+          deduction: Number(document.getElementById('adj-f-deduction').value) || 0,
+          wht: Number(document.getElementById('adj-f-wht').value) || 0,
+          memo: document.getElementById('adj-f-memo').value.trim()
+        });
         this.closeModal('modal-adj'); showToast(t('toastAdjSaved'), 'success');
       },
       openPayslipModal(empId) {
         const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), r = view.rows.find(x => (x.empId || x.emp?.id) === empId); if (!r) return;
-        const emp = r.emp, curr = view.currency, rules = view.rules;
+        const emp = r.emp, rules = view.rules;
+        const storeMeta = [state.settings.storeTaxId ? `Tax ID: ${state.settings.storeTaxId}` : '', state.settings.storeAddress || ''].filter(Boolean).join(' · ');
         const bankInfo = (emp.bankName || emp.bankAccount) ? `<p class="text-xs text-stone-600 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200">${escapeHtml(t('payslipBankAccount', { bank: emp.bankName || '-', account: emp.bankAccount || '' }))}</p>` : '';
         const closedBadge = view.isClosed ? `<span class="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold align-middle">[${escapeHtml(t('payslipClosedBadge'))}]</span>` : '';
         document.getElementById('payslip-print-area').innerHTML = `
           <div class="border-b-2 border-warm-900 pb-4 flex items-start justify-between gap-4">
-            <div><span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreName())} · PAYSLIP</span><h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(t('payslipTitle', { month: m }))}${closedBadge}</h3></div>
-            <div class="text-right text-xs text-stone-500"><p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p><p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))})</p><p class="mt-0.5">${escapeHtml(t('payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p></div>
+            <div>
+              <span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreName())} · PAYSLIP</span>
+              <h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(t('payslipTitle', { month: m }))}${closedBadge}</h3>
+              ${storeMeta ? `<p class="text-[11px] text-stone-500 mt-1">${escapeHtml(storeMeta)}</p>` : ''}
+            </div>
+            <div class="text-right text-xs text-stone-500 shrink-0"><p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p><p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))})</p><p class="mt-0.5">${escapeHtml(t('payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p></div>
           </div>
           ${bankInfo}
           <div class="grid grid-cols-3 gap-2 bg-warm-50 p-3.5 rounded-2xl border border-warm-200 text-xs">
@@ -1388,23 +1539,25 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5">
               <h4 class="font-extrabold text-emerald-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(t('payslipEarningsTitle'))}</h4>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipBasePay'))}</span><span class="font-mono font-bold">${formatMoney(r.basePay, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold">${formatMoney(r.otPay, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold">${formatMoney(r.holidayPay, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipExtraBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.extraBonus, curr)}</span></div>
-              <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(t('payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings, curr)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipBasePay'))}</span><span class="font-mono font-bold">${formatMoney(r.basePay)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold">${formatMoney(r.otPay)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold">${formatMoney(r.holidayPay)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipExtraBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.extraBonus)}</span></div>
+              <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(t('payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings)}</span></div>
             </div>
             <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5">
               <h4 class="font-extrabold text-rose-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(t('payslipDeductionsTitle'))}</h4>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold">${formatMoney(r.lateDeduction, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold">${formatMoney(r.unpaidDeduction, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipSsoDed'))}</span><span class="font-mono font-bold">${formatMoney(r.ssoDeduction, curr)}</span></div>
-              <div class="flex justify-between"><span>${escapeHtml(t('payslipExtraDed'))}</span><span class="font-mono font-bold">${formatMoney(r.extraDeduction, curr)}</span></div>
-              <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(t('payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions, curr)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold">${formatMoney(r.lateDeduction)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold">${formatMoney(r.unpaidDeduction)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipSsoDed'))}</span><span class="font-mono font-bold">${formatMoney(r.ssoDeduction)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipWhtDed'))}</span><span class="font-mono font-bold">${formatMoney(r.whtDeduction)}</span></div>
+              <div class="flex justify-between"><span>${escapeHtml(t('payslipExtraDed'))}</span><span class="font-mono font-bold">${formatMoney(r.extraDeduction)}</span></div>
+              <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(t('payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions)}</span></div>
             </div>
           </div>
           ${r.adjMemo ? `<p class="text-xs text-stone-500 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200"><strong>${escapeHtml(t('payslipAdjMemo'))}</strong> ${escapeHtml(r.adjMemo)}</p>` : ''}
-          <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between"><div><span class="text-xs text-stone-300">${escapeHtml(t('payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(t('payslipNetSub'))}</p></div><span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay, curr)}</span></div>`;
+          <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between"><div><span class="text-xs text-stone-300">${escapeHtml(t('payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(t('payslipNetSub'))}</p></div><span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay)}</span></div>
+          <p class="text-[11px] text-stone-500 text-right">${escapeHtml(t('payslipEmployerSsoNote', { amt: formatMoney(r.employerSso) }))}</p>`;
         document.getElementById('modal-payslip').classList.remove('hidden');
       },
       exportPayrollCSV() {
@@ -1413,13 +1566,109 @@
           rows.push([
             m, r.emp.name, r.emp.role, r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'),
             r.workDaysCount, r.totalWorkedHours, r.totalOtHours, r.totalHolidayHours, r.unpaidLeaveDays,
-            r.basePay, r.otPay, r.holidayPay, r.extraBonus, r.lateDeduction, r.unpaidDeduction, r.extraDeduction, r.ssoDeduction, r.netPay,
+            r.basePay, r.otPay, r.holidayPay, r.extraBonus, r.lateDeduction, r.unpaidDeduction, r.extraDeduction,
+            r.ssoDeduction, r.whtDeduction, r.employerSso, r.employerTotalCost, r.netPay,
             r.emp.idNumber || '', r.emp.bankName || '', r.emp.bankAccount || '',
             view.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'),
             view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : '-'
           ]);
         });
         downloadCSV(`${t('csvPayrollPrefix')}_${m}.csv`, rows); showToast(t('toastCsvPayrollDone'), 'success');
+      },
+      exportSsoCSV() {
+        const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), rows = [t('csvSsoHeaders')];
+        const ssoRows = view.rows.filter(r => r.ssoDeduction > 0 || r.employerSso > 0 || r.emp?.ssoEligible);
+        (ssoRows.length > 0 ? ssoRows : view.rows).forEach(r => {
+          rows.push([m, r.emp.name, r.emp.idNumber || '', r.basePay, r.ssoDeduction, r.employerSso, r.ssoDeduction + r.employerSso]);
+        });
+        downloadCSV(`${t('csvSsoPrefix')}_${m}.csv`, rows); showToast(t('toastCsvSsoDone'), 'success');
+      },
+      exportBankTransferCSV() {
+        const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), rows = [t('csvBankHeaders')];
+        view.rows.forEach(r => {
+          rows.push([m, r.emp.bankName || '', r.emp.bankAccount || '', r.emp.name, r.netPay, `Salary ${m}`, view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : t('badgePayrollOpen')]);
+        });
+        downloadCSV(`${t('csvBankPrefix')}_${m}.csv`, rows); showToast(t('toastCsvBankDone'), 'success');
+      },
+      openAnnualTaxModal() {
+        const sel = document.getElementById('annual-year-select');
+        const curYear = Number((document.getElementById('payroll-month-input').value || getCurrentMonthStr()).slice(0, 4)) || new Date().getFullYear();
+        const yearSet = new Set([curYear - 2, curYear - 1, curYear, curYear + 1]);
+        state.attendance.forEach(a => { const y = Number((a.date || '').slice(0, 4)); if (y > 2000) yearSet.add(y); });
+        Object.keys(state.closures).forEach(k => { const y = Number(k.slice(0, 4)); if (y > 2000) yearSet.add(y); });
+        const years = Array.from(yearSet).sort((a, b) => b - a);
+        sel.innerHTML = years.map(y => `<option value="${y}">${y}</option>`).join('');
+        sel.value = String(curYear);
+        this.renderAnnualTaxModal();
+        document.getElementById('modal-annual-tax').classList.remove('hidden');
+      },
+      renderAnnualTaxModal() {
+        const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
+        const summary = computeAnnualTaxSummary(year);
+        document.getElementById('annual-modal-title').textContent = t('annualModalTitle', { year });
+        document.getElementById('annual-closed-badge').textContent = t('annualClosedCount', { c: summary.closedCount });
+        const tb = document.getElementById('annual-tax-tbody');
+        if (summary.items.length === 0) {
+          tb.innerHTML = `<tr><td colspan="7" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('payrollEmpty'))}</td></tr>`;
+          return;
+        }
+        tb.innerHTML = summary.items.map(it => `
+          <tr class="hover:bg-warm-50/80 transition">
+            <td class="py-3 px-4"><div class="font-bold text-warm-900">${escapeHtml(it.emp.name)}</div><div class="text-[11px] font-mono text-stone-500">${escapeHtml(it.emp.idNumber || '-')}</div></td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(it.gross)}</td>
+            <td class="py-3 px-4 text-right font-mono font-bold text-indigo-700">${formatMoney(it.wht)}</td>
+            <td class="py-3 px-4 text-right font-mono text-xs text-stone-700">${formatMoney(it.empSso)}</td>
+            <td class="py-3 px-4 text-right font-mono text-xs text-sky-800">${formatMoney(it.erSso)}</td>
+            <td class="py-3 px-4 text-right font-mono font-extrabold text-wood-700">${formatMoney(it.net)}</td>
+            <td class="py-3 px-4 text-center"><button type="button" onclick="HR.open50TawiModal('${it.empId}')" class="px-3 py-1.5 rounded-xl bg-warm-900 hover:bg-black text-white text-xs font-bold">${escapeHtml(t('btnPrint50Tawi'))}</button></td>
+          </tr>`).join('');
+      },
+      exportAnnualTaxCSV() {
+        const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
+        const summary = computeAnnualTaxSummary(year), rows = [t('csvAnnualHeaders')];
+        summary.items.forEach(it => {
+          rows.push([year, it.emp.name, it.emp.idNumber || '', it.emp.hireDate || '', it.emp.resignDate || '', it.gross, it.wht, it.empSso, it.erSso, it.net]);
+        });
+        downloadCSV(`${t('csvAnnualPrefix')}_${year}.csv`, rows); showToast(t('toastCsvAnnualDone'), 'success');
+      },
+      open50TawiModal(empId) {
+        const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
+        const summary = computeAnnualTaxSummary(year), it = summary.items.find(x => x.empId === empId); if (!it) return;
+        const emp = it.emp;
+        document.getElementById('payslip-print-area').innerHTML = `
+          <div class="border-b-2 border-warm-900 pb-4">
+            <span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(t('tawiSub'))}</span>
+            <h3 class="text-xl sm:text-2xl font-extrabold text-warm-900 mt-1">${escapeHtml(t('tawiTitle', { year }))}</h3>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="bg-warm-50 border border-warm-200 rounded-2xl p-3.5 space-y-1">
+              <div class="font-extrabold text-wood-700 mb-1">${escapeHtml(t('tawiStoreLabel'))}</div>
+              <div class="font-bold text-warm-900 text-sm">${escapeHtml(getDisplayStoreName())}</div>
+              <div class="font-mono text-stone-600">Tax ID: ${escapeHtml(state.settings.storeTaxId || '-')}</div>
+              <div class="text-stone-600">${escapeHtml(state.settings.storeAddress || '')}</div>
+            </div>
+            <div class="bg-warm-50 border border-warm-200 rounded-2xl p-3.5 space-y-1">
+              <div class="font-extrabold text-wood-700 mb-1">${escapeHtml(t('tawiEmpLabel'))}</div>
+              <div class="font-bold text-warm-900 text-sm">${escapeHtml(emp.name)} <span class="text-xs font-normal text-stone-500">(${escapeHtml(emp.role)})</span></div>
+              <div class="font-mono text-stone-600">${escapeHtml(t('empFIdNumber'))}: ${escapeHtml(emp.idNumber || '-')}</div>
+              <div class="font-mono text-stone-600">${escapeHtml(t('empCardHireDate'))}: ${escapeHtml(emp.hireDate || '-')}${emp.resignDate ? ` · ${escapeHtml(t('empCardResign'))}: ${escapeHtml(emp.resignDate)}` : ''}</div>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualGross'))}</span><strong class="font-mono text-sm text-warm-900">${formatMoney(it.gross)}</strong></div>
+            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualWht'))}</span><strong class="font-mono text-sm text-indigo-700">${formatMoney(it.wht)}</strong></div>
+            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualEmpSso'))}</span><strong class="font-mono text-sm text-stone-700">${formatMoney(it.empSso)}</strong></div>
+            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualErSso'))}</span><strong class="font-mono text-sm text-sky-800">${formatMoney(it.erSso)}</strong></div>
+            <div class="bg-warm-900 text-white rounded-xl p-3 col-span-2 sm:col-span-1"><span class="text-stone-300 block">${escapeHtml(t('thAnnualNet'))}</span><strong class="font-mono text-sm text-amber-300">${formatMoney(it.net)}</strong></div>
+          </div>
+          <div class="overflow-x-auto rounded-2xl border border-warm-200">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead><tr class="bg-warm-100 text-warm-800 border-b border-warm-200"><th class="py-2 px-3 font-extrabold">${escapeHtml(t('thDate'))}</th><th class="py-2 px-3 font-extrabold">${escapeHtml(t('thStatus'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualGross'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualWht'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualEmpSso'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thPayNet'))}</th></tr></thead>
+              <tbody class="divide-y divide-warm-200">${it.months.map(m => `<tr><td class="py-2 px-3 font-mono font-bold">${escapeHtml(m.ym)}</td><td class="py-2 px-3">${escapeHtml(m.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'))}</td><td class="py-2 px-3 text-right font-mono">${formatMoney(m.gross)}</td><td class="py-2 px-3 text-right font-mono text-indigo-700">${formatMoney(m.wht)}</td><td class="py-2 px-3 text-right font-mono">${formatMoney(m.empSso)}</td><td class="py-2 px-3 text-right font-mono font-bold">${formatMoney(m.net)}</td></tr>`).join('')}</tbody>
+            </table>
+          </div>
+          <p class="text-[11px] text-stone-500 bg-warm-50 px-3.5 py-2.5 rounded-xl border border-warm-200">${escapeHtml(t('tawiDisclaimer'))} (${escapeHtml(t('payslipIssuedAt', { date: getTodayStr() }))})</p>`;
+        document.getElementById('modal-payslip').classList.remove('hidden');
       },
       async toggleWeeklyOff(idx) { const c = new Set(state.settings.weeklyOffDays || []); if (c.has(idx)) c.delete(idx); else c.add(idx); await persistSettings({ weeklyOffDays: Array.from(c).sort() }); },
       async addHoliday() {
@@ -1500,7 +1749,15 @@
       },
       async saveStoreBasicSettings(e) {
         e.preventDefault();
-        const sn = document.getElementById('setting-store-name').value.trim(), np = document.getElementById('setting-new-pin').value.trim(), patch = { storeName: sn || DEFAULT_SETTINGS.storeName };
+        const sn = document.getElementById('setting-store-name').value.trim();
+        const st = document.getElementById('setting-store-taxid').value.trim();
+        const sa = document.getElementById('setting-store-address').value.trim();
+        const np = document.getElementById('setting-new-pin').value.trim();
+        const patch = {
+          storeName: sn || DEFAULT_SETTINGS.storeName,
+          storeTaxId: st,
+          storeAddress: sa || 'Chiang Rai, Thailand'
+        };
         if (np) { if (!/^\d{6}$/.test(np)) { showToast(t('toastPinSixDigits'), 'error'); return; } patch.adminPin = np; }
         await persistSettings(patch); document.getElementById('setting-new-pin').value = ''; showToast(t('toastBasicSaved'), 'success');
       },
@@ -1527,3 +1784,4 @@
   </script>
 </body>
 </html>
+<!-- === 코드 끝 === -->
