@@ -27,6 +27,9 @@ const DEFAULT_SETTINGS = {
   ssoCapThb: 875,
   standardWorkDays: 26,
   weeklyOffDays: [0],
+  attendanceBonusEnabled: false,
+  attendanceBonusAmount: 1000,
+  prorataEnabled: true,
   seeded: false
 };
 
@@ -34,7 +37,9 @@ let db = null, auth = null, currentUser = null;
 let activeAppId = 'store-hr-prod', syncMode = 'local', activeCustomConfigObj = null, unsubscribers = [];
 let routeMode = 'admin', isAdminUnlocked = false, activeAdminTab = 'logs', previewLanguage = null;
 let kioskSelectedEmpId = null, kioskPinBuffer = '', kioskStream = null, kioskVirtualMode = false, kioskConfirmTimer = null, camSessionToken = 0;
-let tawiDocLang = 'th', currentTawiState = null, currentPayslipCtx = null, pendingConfirmAction = null;
+let tawiDocLang = 'th', currentTawiState = null;
+let payslipDocLang = 'th', currentPayslipState = null;
+let pendingConfirmAction = null;
 let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {}, closures: {} };
 
 function getLang() {
@@ -282,9 +287,9 @@ function generateVirtualSelfieJpeg(name, label, time, bg = '#231F20') {
 async function seedInitialSampleData() {
   const today = getTodayStr(), ym = getCurrentMonthStr(), nowTs = Date.now();
   const emps = [
-    { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, active: true, idNumber: '1-5799-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn (KBank)', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
-    { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, active: true, idNumber: '1-5799-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
-    { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, annualLeaveQuota: 6, ssoEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Krungthai', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
+    { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, attendanceBonusEligible: true, active: true, idNumber: '1-5799-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn (KBank)', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
+    { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, attendanceBonusEligible: true, active: true, idNumber: '1-5799-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
+    { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, annualLeaveQuota: 6, ssoEligible: false, attendanceBonusEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Krungthai', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
   ];
   const logs = [
     { id: 'sample_att_1', empId: 'sample_emp_1', date: today, clockIn: '08:54', clockOut: '', clockInTs: nowTs - 7200000, clockOutTs: null, lateMinutes: 0, inPhoto: generateVirtualSelfieJpeg('민지 (Minji)', 'IN · Clock In', `${today} 08:54`, '#1E293B'), outPhoto: '', note: 'Sample', isSample: true },
@@ -480,28 +485,80 @@ function calculateMonthlyPayroll(emp, targetMonth) {
   let tw = 0, tr = 0, to = 0, th = 0, tl = 0;
   logs.forEach(l => { const a = analyzeAttendance(l, emp); tw += a.workedHours; tr += a.regularHours; to += a.otHours; th += a.holidayHours; tl += a.lateMins; });
   const unpaidDays = state.leaves.filter(lv => lv.empId === emp.id && (lv.date || '').startsWith(targetMonth) && lv.status === 'APPROVED' && lv.isPaid === false).length;
+  const sickLeaveDays = state.leaves.filter(lv => lv.empId === emp.id && (lv.date || '').startsWith(targetMonth) && lv.status === 'APPROVED' && lv.type === 'SICK').length;
   const stdDays = Number(state.settings.standardWorkDays || 26), otMult = Number(state.settings.otMultiplier || 1.5), holMult = Number(state.settings.holidayOtMultiplier || 2.0);
-  let basePay = 0, hrEq = 0;
-  if (emp.payType === 'MONTHLY') { basePay = Number(emp.baseRate) || 0; hrEq = basePay / (stdDays * 8); }
-  else { hrEq = Number(emp.baseRate) || 0; basePay = Math.round(tr * hrEq); }
+
+  const [yPart, mPart] = String(targetMonth || getCurrentMonthStr()).split('-').map(Number);
+  const daysInMonth = new Date(yPart || new Date().getFullYear(), mPart || (new Date().getMonth() + 1), 0).getDate();
+  const monthStart = `${targetMonth}-01`;
+  const monthEnd = `${targetMonth}-${String(daysInMonth).padStart(2, '0')}`;
+
+  let fullBasePay = Number(emp.baseRate) || 0;
+  let basePay = 0, hrEq = 0, dailyRate = 0;
+  let isProrated = false, isNotEmployed = false;
+  let prorataEmployedDays = daysInMonth, prorataTotalDays = daysInMonth;
+
+  if (emp.payType === 'MONTHLY') {
+    hrEq = fullBasePay / (stdDays * 8);
+    dailyRate = fullBasePay / stdDays;
+    if (state.settings.prorataEnabled !== false && (emp.hireDate || emp.resignDate)) {
+      if ((emp.hireDate && emp.hireDate > monthEnd) || (emp.resignDate && emp.resignDate < monthStart)) {
+        isNotEmployed = true;
+        isProrated = true;
+        prorataEmployedDays = 0;
+        basePay = 0;
+      } else if ((emp.hireDate && emp.hireDate > monthStart && emp.hireDate <= monthEnd) || (emp.resignDate && emp.resignDate >= monthStart && emp.resignDate < monthEnd)) {
+        const effStart = (emp.hireDate && emp.hireDate > monthStart) ? emp.hireDate : monthStart;
+        const effEnd = (emp.resignDate && emp.resignDate < monthEnd) ? emp.resignDate : monthEnd;
+        prorataEmployedDays = Math.max(0, Math.round((Date.parse(effEnd + 'T00:00:00Z') - Date.parse(effStart + 'T00:00:00Z')) / 86400000) + 1);
+        isProrated = true;
+        basePay = Math.round(fullBasePay * (prorataEmployedDays / daysInMonth));
+      } else {
+        basePay = fullBasePay;
+      }
+    } else {
+      basePay = fullBasePay;
+    }
+  } else {
+    hrEq = Number(emp.baseRate) || 0;
+    basePay = Math.round(tr * hrEq);
+  }
+
   const otPay = Math.round(to * hrEq * otMult), holidayPay = Math.round(th * hrEq * holMult);
   const lateDeduction = state.settings.lateDeductionEnabled ? Math.round((tl / 60) * hrEq) : 0;
-  const unpaidDeduction = emp.payType === 'MONTHLY' ? Math.round(unpaidDays * (basePay / stdDays)) : 0;
+  const unpaidDeduction = emp.payType === 'MONTHLY' ? Math.min(basePay, Math.round(unpaidDays * dailyRate)) : 0;
+
+  const attBonusEligible = emp.attendanceBonusEligible ?? (emp.payType === 'MONTHLY');
+  const attBonusCfgAmt = Number(state.settings.attendanceBonusAmount) || 0;
+  const attendanceBonus = (
+    state.settings.attendanceBonusEnabled === true &&
+    attBonusCfgAmt > 0 &&
+    attBonusEligible &&
+    !isProrated &&
+    !isNotEmployed &&
+    logs.length > 0 &&
+    tl === 0 &&
+    unpaidDays === 0 &&
+    sickLeaveDays === 0
+  ) ? attBonusCfgAmt : 0;
+
   const adj = state.adjustments[`${targetMonth}_${emp.id}`] || { bonus: 0, deduction: 0, wht: 0, memo: '' };
   const extraBonus = Number(adj.bonus) || 0, extraDeduction = Number(adj.deduction) || 0, whtDeduction = Number(adj.wht) || 0;
   const ssoDeduction = (state.settings.ssoEnabled && emp.ssoEligible)
     ? Math.min(Number(state.settings.ssoCapThb ?? 875), Math.round(basePay * ((Number(state.settings.ssoRateThb ?? 5)) / 100)))
     : 0;
   const employerSso = ssoDeduction;
-  const totalEarnings = basePay + otPay + holidayPay + extraBonus;
+  const totalEarnings = basePay + otPay + holidayPay + attendanceBonus + extraBonus;
   const totalDeductions = lateDeduction + unpaidDeduction + extraDeduction + ssoDeduction + whtDeduction;
   const netPay = Math.max(0, totalEarnings - totalDeductions);
   const employerTotalCost = totalEarnings + employerSso;
+
   return {
     emp, empId: emp.id, targetMonth, workDaysCount: logs.length,
     totalWorkedHours: +tw.toFixed(1), totalOtHours: +to.toFixed(1), totalHolidayHours: +th.toFixed(1),
     totalLateMins: tl, unpaidLeaveDays: unpaidDays,
-    basePay, otPay, holidayPay, extraBonus, extraDeduction, adjMemo: adj.memo || '',
+    fullBasePay, basePay, isProrated, isNotEmployed, prorataEmployedDays, prorataTotalDays,
+    otPay, holidayPay, attendanceBonus, extraBonus, extraDeduction, adjMemo: adj.memo || '',
     lateDeduction, unpaidDeduction, ssoDeduction, whtDeduction, employerSso,
     totalEarnings, totalDeductions, netPay, employerTotalCost,
     transferPaid: false, transferPaidAt: ''
@@ -522,6 +579,12 @@ function getPayrollViewData(targetMonth) {
         const employerTotalCost = r.employerTotalCost ?? (totalEarnings + employerSso);
         return {
           ...r,
+          attendanceBonus: Number(r.attendanceBonus) || 0,
+          isProrated: !!r.isProrated,
+          isNotEmployed: !!r.isNotEmployed,
+          prorataEmployedDays: r.prorataEmployedDays || 0,
+          prorataTotalDays: r.prorataTotalDays || 0,
+          fullBasePay: r.fullBasePay ?? r.basePay ?? 0,
           whtDeduction,
           employerSso,
           employerTotalCost,
@@ -561,7 +624,7 @@ function computeAnnualTaxSummary(year) {
     const view = getPayrollViewData(ym);
     if (view.isClosed) closedCount++;
     view.rows.forEach(r => {
-      const hasActivity = view.isClosed || r.workDaysCount > 0 || r.extraBonus > 0 || r.whtDeduction > 0 || r.extraDeduction > 0;
+      const hasActivity = view.isClosed || r.workDaysCount > 0 || (r.attendanceBonus || 0) > 0 || r.extraBonus > 0 || r.whtDeduction > 0 || r.extraDeduction > 0;
       if (!hasActivity) return;
       const eid = r.empId || r.emp.id;
       const liveEmp = state.employees.find(e => e.id === eid);
@@ -580,23 +643,21 @@ function computeAnnualTaxSummary(year) {
   return { year, closedCount, items: Array.from(map.values()) };
 }
 
-function renderPayslipDocument() {
-  if (!currentPayslipCtx || currentPayslipCtx.type !== 'payslip') return;
-  const { empId, month, lang } = currentPayslipCtx;
-  const useLang = I18N[lang] ? lang : 'ko';
-
-  ['th', 'ko', 'en'].forEach(code => {
-    const isCur = code === useLang;
-    document.querySelectorAll(`.payslip-lang-btn-${code}`).forEach(b => {
-      b.className = `payslip-lang-btn-${code} px-2.5 py-1 rounded-lg transition ${isCur ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
-    });
+function renderPayslipDocument(empId, month, lang) {
+  const useLang = I18N[lang] ? lang : getLang();
+  ['ko', 'th', 'en'].forEach(code => {
+    const btn = document.getElementById(`btn-slip-${code}`);
+    if (btn) {
+      btn.className = `px-3 py-1 rounded-lg transition ${code === useLang ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
+    }
   });
 
   const view = getPayrollViewData(month);
   const r = view.rows.find(x => (x.empId || x.emp?.id) === empId);
   if (!r) return;
 
-  const emp = r.emp, rules = view.rules;
+  const emp = r.emp;
+  const rules = view.rules;
   const storeMeta = [state.settings.storeTaxId ? `Tax ID: ${state.settings.storeTaxId}` : '', state.settings.storeAddress || ''].filter(Boolean).join(' · ');
   const bankInfo = (emp.bankName || emp.bankAccount)
     ? `<p class="text-xs text-stone-600 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200">${escapeHtml(tFor(useLang, 'payslipBankAccount', { bank: emp.bankName || '-', account: emp.bankAccount || '' }))}</p>`
@@ -604,11 +665,22 @@ function renderPayslipDocument() {
   const closedBadge = view.isClosed
     ? `<span class="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold align-middle">[${escapeHtml(tFor(useLang, 'payslipClosedBadge'))}]</span>`
     : '';
+  const prorataSuffix = (r.isProrated && !r.isNotEmployed)
+    ? ` (${tFor(useLang, 'payslipProrataNote', { d: r.prorataEmployedDays, t: r.prorataTotalDays })})`
+    : (r.isNotEmployed ? ` (${tFor(useLang, 'badgeNotEmployed')})` : '');
 
   document.getElementById('payslip-print-area').innerHTML = `
     <div class="border-b-2 border-warm-900 pb-4 flex items-start justify-between gap-4">
-      <div><span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreNameFor(useLang))} · PAYSLIP</span><h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(tFor(useLang, 'payslipTitle', { month }))}${closedBadge}</h3>${storeMeta ? `<p class="text-[11px] text-stone-500 mt-1">${escapeHtml(storeMeta)}</p>` : ''}</div>
-      <div class="text-right text-xs text-stone-500 shrink-0"><p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p><p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? tFor(useLang, 'payTypeMonthly') : tFor(useLang, 'payTypeHourly'))})</p><p class="mt-0.5">${escapeHtml(tFor(useLang, 'payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p></div>
+      <div>
+        <span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreNameFor(useLang))} · PAYSLIP</span>
+        <h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(tFor(useLang, 'payslipTitle', { month }))}${closedBadge}</h3>
+        ${storeMeta ? `<p class="text-[11px] text-stone-500 mt-1">${escapeHtml(storeMeta)}</p>` : ''}
+      </div>
+      <div class="text-right text-xs text-stone-500 shrink-0">
+        <p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p>
+        <p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? tFor(useLang, 'payTypeMonthly') : tFor(useLang, 'payTypeHourly'))})</p>
+        <p class="mt-0.5">${escapeHtml(tFor(useLang, 'payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p>
+      </div>
     </div>${bankInfo}
     <div class="grid grid-cols-3 gap-2 bg-warm-50 p-3.5 rounded-2xl border border-warm-200 text-xs">
       <div><span class="text-stone-500 block">${escapeHtml(tFor(useLang, 'payslipWorkDays'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(tFor(useLang, 'payslipWorkUnit', { d: r.workDaysCount }))}</strong></div>
@@ -616,12 +688,71 @@ function renderPayslipDocument() {
       <div><span class="text-stone-500 block">${escapeHtml(tFor(useLang, 'payslipLateUnpaid'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(tFor(useLang, 'payslipLateUnpaidVal', { m: r.totalLateMins, d: r.unpaidLeaveDays }))}</strong></div>
     </div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-emerald-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(useLang, 'payslipEarningsTitle'))}</h4><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipBasePay'))}</span><span class="font-mono font-bold">${formatMoney(r.basePay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold">${formatMoney(r.otPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold">${formatMoney(r.holidayPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipExtraBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.extraBonus)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(tFor(useLang, 'payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings)}</span></div></div>
-      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-rose-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(useLang, 'payslipDeductionsTitle'))}</h4><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold">${formatMoney(r.lateDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold">${formatMoney(r.unpaidDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipSsoDed'))}</span><span class="font-mono font-bold">${formatMoney(r.ssoDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipWhtDed'))}</span><span class="font-mono font-bold">${formatMoney(r.whtDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(useLang, 'payslipExtraDed'))}</span><span class="font-mono font-bold">${formatMoney(r.extraDeduction)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(tFor(useLang, 'payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions)}</span></div></div>
+      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5">
+        <h4 class="font-extrabold text-emerald-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(useLang, 'payslipEarningsTitle'))}</h4>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipBasePay') + prorataSuffix)}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.basePay)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.otPay)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.holidayPay)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipAttBonus'))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.attendanceBonus || 0)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipExtraBonus'))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.extraBonus)}</span></div>
+        <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(tFor(useLang, 'payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings)}</span></div>
+      </div>
+      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5">
+        <h4 class="font-extrabold text-rose-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(useLang, 'payslipDeductionsTitle'))}</h4>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.lateDeduction)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.unpaidDeduction)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipSsoDed'))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.ssoDeduction)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipWhtDed'))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.whtDeduction)}</span></div>
+        <div class="flex justify-between gap-2"><span>${escapeHtml(tFor(useLang, 'payslipExtraDed'))}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.extraDeduction)}</span></div>
+        <div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(tFor(useLang, 'payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions)}</span></div>
+      </div>
     </div>
     ${r.adjMemo ? `<p class="text-xs text-stone-500 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200"><strong>${escapeHtml(tFor(useLang, 'payslipAdjMemo'))}</strong> ${escapeHtml(r.adjMemo)}</p>` : ''}
-    <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between"><div><span class="text-xs text-stone-300">${escapeHtml(tFor(useLang, 'payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(tFor(useLang, 'payslipNetSub'))}</p></div><span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay)}</span></div>
+    <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between">
+      <div><span class="text-xs text-stone-300">${escapeHtml(tFor(useLang, 'payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(tFor(useLang, 'payslipNetSub'))}</p></div>
+      <span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay)}</span>
+    </div>
     <p class="text-[11px] text-stone-500 text-right">${escapeHtml(tFor(useLang, 'payslipEmployerSsoNote', { amt: formatMoney(r.employerSso) }))}</p>`;
+}
+
+function getActiveDocExportFilename() {
+  if (currentTawiState) {
+    const emp = state.employees.find(e => e.id === currentTawiState.empId);
+    const safeName = (emp ? emp.name : currentTawiState.empId).replace(/[^\w가-힣ก-๙-]+/g, '_');
+    return `50Tawi_${currentTawiState.year}_${safeName}.png`;
+  }
+  if (currentPayslipState) {
+    const view = getPayrollViewData(currentPayslipState.month);
+    const r = view.rows.find(x => (x.empId || x.emp?.id) === currentPayslipState.empId);
+    const safeName = (r?.emp?.name || currentPayslipState.empId).replace(/[^\w가-힣ก-๙-]+/g, '_');
+    return `Payslip_${currentPayslipState.month}_${safeName}_${payslipDocLang}.png`;
+  }
+  return `document_${getTodayStr()}.png`;
+}
+
+async function captureDocumentCanvas() {
+  if (typeof window.html2canvas !== 'function') throw new Error('html2canvas unavailable');
+  const el = document.getElementById('payslip-print-area');
+  if (!el) throw new Error('Print area missing');
+  const prevBg = el.style.backgroundColor, prevPad = el.style.padding;
+  el.style.backgroundColor = '#ffffff';
+  el.style.padding = '16px';
+  try {
+    return await window.html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+  } finally {
+    el.style.backgroundColor = prevBg;
+    el.style.padding = prevPad;
+  }
+}
+
+function triggerCanvasDownload(canvas, filename) {
+  const url = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }
 
 function render50Tawi(empId, year) {
@@ -738,75 +869,6 @@ function render50Tawi(empId, year) {
     </div>`;
 }
 
-async function capturePayslipToBlob() {
-  if (typeof window.html2canvas !== 'function') throw new Error('html2canvas missing');
-  if (document.fonts && document.fonts.ready) await document.fonts.ready;
-  const src = document.getElementById('payslip-print-area');
-  if (!src) throw new Error('payslip-print-area missing');
-  const wrap = document.createElement('div');
-  wrap.style.cssText = 'position:fixed; left:-99999px; top:0; width:720px; padding:32px; background:#ffffff; z-index:-1;';
-  const clone = src.cloneNode(true);
-  clone.style.width = '100%';
-  wrap.appendChild(clone);
-  document.body.appendChild(wrap);
-  try {
-    const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
-    const blob = await new Promise((resolve, reject) => {
-      canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png', 1.0);
-    });
-    return blob;
-  } finally {
-    wrap.remove();
-  }
-}
-
-function getPayslipImageFilename() {
-  let rawName = 'staff';
-  if (currentPayslipCtx) {
-    if (currentPayslipCtx.type === 'tawi') {
-      const summary = computeAnnualTaxSummary(currentPayslipCtx.year);
-      const it = summary.items.find(x => x.empId === currentPayslipCtx.empId);
-      const liveEmp = state.employees.find(e => e.id === currentPayslipCtx.empId);
-      rawName = it?.emp?.name || liveEmp?.name || 'staff';
-    } else if (currentPayslipCtx.type === 'payslip') {
-      const view = getPayrollViewData(currentPayslipCtx.month);
-      const row = view.rows.find(x => (x.empId || x.emp?.id) === currentPayslipCtx.empId);
-      const liveEmp = state.employees.find(e => e.id === currentPayslipCtx.empId);
-      rawName = row?.emp?.name || liveEmp?.name || 'staff';
-    }
-  }
-  const safeName = String(rawName).replace(/[\\/:*?"<>|]/g, '_').replace(/\s+/g, '_').replace(/^_+|_+$/g, '') || 'staff';
-  if (currentPayslipCtx?.type === 'tawi') {
-    return `50tawi_${currentPayslipCtx.year}_${safeName}_${currentPayslipCtx.docLang || tawiDocLang}.png`;
-  }
-  if (currentPayslipCtx?.type === 'payslip') {
-    return `payslip_${currentPayslipCtx.month}_${safeName}_${currentPayslipCtx.lang || getLang()}.png`;
-  }
-  return `payslip_${getTodayStr()}_${safeName}.png`;
-}
-
-function setPayslipImageButtonsDisabled(disabled) {
-  ['btn-save-png', 'btn-share-line'].forEach(id => {
-    const btn = document.getElementById(id);
-    if (btn) {
-      btn.disabled = disabled;
-      btn.classList.toggle('opacity-60', disabled);
-      btn.classList.toggle('cursor-not-allowed', disabled);
-    }
-  });
-}
-
-function triggerBlobDownload(blob, filename) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
 function renderLogsTab() {
   const today = getTodayStr(), activeEmps = state.employees.filter(e => e.active !== false), todayLogs = state.attendance.filter(l => l.date === today);
   const lateCnt = todayLogs.filter(l => analyzeAttendance(l, state.employees.find(e => e.id === l.empId)).lateMins > 0).length;
@@ -860,6 +922,13 @@ function renderPayrollTab() {
   document.getElementById('rule-sso-rate').value = state.settings.ssoRateThb ?? 5;
   document.getElementById('rule-sso-cap').value = state.settings.ssoCapThb ?? 875;
 
+  const abAmtEl = document.getElementById('rule-att-bonus-amount');
+  const abEnEl = document.getElementById('rule-att-bonus-enabled');
+  const prEnEl = document.getElementById('rule-prorata-enabled');
+  if (abAmtEl) abAmtEl.value = state.settings.attendanceBonusAmount ?? 1000;
+  if (abEnEl) abEnEl.checked = state.settings.attendanceBonusEnabled === true;
+  if (prEnEl) prEnEl.checked = state.settings.prorataEnabled !== false;
+
   const view = getPayrollViewData(tm), rows = view.rows;
   const closeBtn = document.getElementById('btn-close-payroll'), banner = document.getElementById('payroll-closure-banner');
   if (view.isClosed) {
@@ -873,12 +942,13 @@ function renderPayrollTab() {
   }
 
   const sumEmployerCost = rows.reduce((s, r) => s + r.employerTotalCost, 0);
+  const sumPlus = rows.reduce((s, r) => s + r.otPay + r.holidayPay + (r.attendanceBonus || 0) + r.extraBonus, 0);
   const sumTotalSso = rows.reduce((s, r) => s + r.ssoDeduction + r.employerSso, 0);
   const sumWht = rows.reduce((s, r) => s + r.whtDeduction, 0);
   const sumNet = rows.reduce((s, r) => s + r.netPay, 0);
 
   document.getElementById('payroll-kpi-grid').innerHTML = `
-    <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayEmployerCost'))}</span><p class="text-xl font-extrabold text-warm-900 mt-1">${formatMoney(sumEmployerCost)}</p></div>
+    <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayEmployerCost'))}</span><p class="text-xl font-extrabold text-warm-900 mt-1">${formatMoney(sumEmployerCost)}</p><span class="text-[11px] font-semibold text-emerald-700 block mt-0.5">${escapeHtml(t('kpiPayPlus'))}: ${formatMoney(sumPlus)}</span></div>
     <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayTotalSso'))}</span><p class="text-xl font-extrabold text-sky-800 mt-1">${formatMoney(sumTotalSso)}</p></div>
     <div class="bg-warm-50 border border-warm-200 rounded-2xl p-4"><span class="text-xs text-stone-500">${escapeHtml(t('kpiPayTotalWht'))}</span><p class="text-xl font-extrabold text-indigo-800 mt-1">${formatMoney(sumWht)}</p></div>
     <div class="bg-wood-600 text-white rounded-2xl p-4 shadow-sm"><span class="text-xs text-amber-100">${escapeHtml(t('kpiPayNet'))}</span><p class="text-xl font-extrabold mt-1">${formatMoney(sumNet)}</p></div>`;
@@ -887,6 +957,15 @@ function renderPayrollTab() {
   if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('payrollEmpty'))}</td></tr>`; return; }
   tb.innerHTML = rows.map(r => {
     const eid = r.empId || r.emp.id;
+    const plusTotal = r.otPay + r.holidayPay + (r.attendanceBonus || 0) + r.extraBonus;
+    const baseBadge = r.isNotEmployed
+      ? `<div class="mt-0.5"><span class="inline-block px-1.5 py-0.5 rounded bg-stone-200 text-stone-600 text-[10px] font-bold">${escapeHtml(t('badgeNotEmployed'))}</span></div>`
+      : (r.isProrated
+        ? `<div class="mt-0.5"><span class="inline-block px-1.5 py-0.5 rounded bg-amber-100 text-wood-700 text-[10px] font-bold">${escapeHtml(t('badgeProrata', { d: r.prorataEmployedDays, t: r.prorataTotalDays }))}</span></div>`
+        : '');
+    const attBonusBadge = (r.attendanceBonus || 0) > 0
+      ? `<div class="mt-0.5"><span class="inline-block px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[10px] font-bold">${escapeHtml(t('badgeAttBonus', { amt: formatMoney(r.attendanceBonus) }))}</span></div>`
+      : '';
     const actionBtns = view.isClosed
       ? `<button type="button" onclick="HR.toggleTransferPaid('${tm}','${eid}')" class="px-2.5 py-1.5 rounded-xl text-xs font-bold border transition ${r.transferPaid ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-50 text-wood-700 border-amber-300 hover:bg-amber-100'}">${escapeHtml(r.transferPaid ? t('btnTransferPaid') : t('btnTransferUnpaid'))}</button>
          <button type="button" disabled class="px-2 py-1.5 rounded-xl border border-stone-200 bg-stone-100 text-stone-400 text-xs font-bold cursor-not-allowed">${escapeHtml(t('btnAdjust'))}</button>
@@ -896,8 +975,8 @@ function renderPayrollTab() {
     return `<tr class="hover:bg-warm-50/80 transition">
       <td class="py-3.5 px-4"><div class="font-bold text-warm-900">${escapeHtml(r.emp.name)}</div><div class="text-xs text-stone-500">${escapeHtml(r.emp.role)} · <span class="font-bold text-wood-600">${escapeHtml(r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))}</span></div></td>
       <td class="py-3.5 px-4 text-xs"><div class="font-bold text-warm-900">${escapeHtml(t('payWorkSummary', { d: r.workDaysCount, h: r.totalWorkedHours }))}</div><div class="text-stone-500">${escapeHtml(t('payOtUnpaidSummary', { ot: r.totalOtHours, hol: r.totalHolidayHours, u: r.unpaidLeaveDays }))}</div></td>
-      <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(r.basePay)}</td>
-      <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold">+${formatMoney(r.otPay + r.holidayPay + r.extraBonus)}</td>
+      <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900"><div>${formatMoney(r.basePay)}</div>${baseBadge}</td>
+      <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold"><div>+${formatMoney(plusTotal)}</div>${attBonusBadge}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-rose-600 font-bold">-${formatMoney(r.lateDeduction + r.unpaidDeduction + r.extraDeduction)}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-stone-600">-${formatMoney(r.ssoDeduction)}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-indigo-700 font-bold">-${formatMoney(r.whtDeduction)}</td>
@@ -960,6 +1039,7 @@ function renderEmployeesTab() {
     const hireStr = emp.hireDate ? `${emp.hireDate}${emp.resignDate ? ` (${t('empCardResign')} ${emp.resignDate})` : ''}` : (emp.resignDate ? `${t('empCardResign')} ${emp.resignDate}` : '');
     const bankStr = (emp.bankName || emp.bankAccount) ? `${emp.bankName || ''} ${emp.bankAccount || ''}`.trim() : '';
     const lStats = getEmployeeLeaveStats(emp, curYear);
+    const attElig = emp.attendanceBonusEligible ?? (emp.payType === 'MONTHLY');
     return `<div class="rounded-2xl border p-5 flex flex-col justify-between space-y-4 transition ${act ? 'bg-warm-50/70 border-warm-200 hover:shadow-md' : 'bg-stone-100/80 border-stone-200 opacity-75'}">
       <div class="space-y-3">
         <div class="flex items-start justify-between gap-2"><div><div class="flex items-center gap-1.5"><span class="px-2 py-0.5 rounded-md text-[11px] font-bold ${emp.payType === 'MONTHLY' ? 'bg-amber-100 text-wood-700' : 'bg-sky-100 text-sky-800'}">${escapeHtml(emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))}</span>${!act ? `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-stone-300 text-stone-700">${escapeHtml(t('badgeInactive'))}</span>` : ''}</div><h3 class="text-base font-extrabold text-warm-900 mt-1.5">${escapeHtml(emp.name)}</h3><p class="text-xs text-stone-500">${escapeHtml(emp.role)}</p></div><div class="bg-white border border-warm-200 px-3 py-1.5 rounded-xl text-center shrink-0"><span class="block text-[10px] text-stone-400 font-bold">PIN</span><span class="font-mono font-extrabold text-sm text-warm-900">${escapeHtml(emp.pin)}</span></div></div>
@@ -967,6 +1047,7 @@ function renderEmployeesTab() {
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(emp.payType === 'MONTHLY' ? t('empCardBaseMonthly') : t('empCardBaseHourly'))}</span><span class="font-mono font-extrabold text-warm-900">${formatMoney(emp.baseRate)}</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardShiftBreak'))}</span><span class="font-mono font-semibold text-warm-800">${escapeHtml(emp.shiftStart)}~${escapeHtml(emp.shiftEnd)} (${emp.breakMinutes ?? 60}${escapeHtml(t('unitMin'))})</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardOffSso'))}</span><span class="font-semibold text-warm-800">${escapeHtml(off)} · ${escapeHtml(emp.ssoEligible ? t('ssoApplied') : t('ssoNotApplied'))}</span></div>
+          <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardAttBonus'))}</span><span class="font-semibold ${attElig ? 'text-emerald-700' : 'text-stone-500'}">${escapeHtml(attElig ? t('attBonusApplied') : t('attBonusNotApplied'))}</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardAnnualLeave'))}</span><span class="font-mono font-bold ${lStats.remaining <= 0 ? 'text-rose-600' : 'text-emerald-700'}">${lStats.remaining} / ${lStats.quota}${escapeHtml(unitD)}</span></div>
           ${hireStr ? `<div class="flex justify-between pt-1 border-t border-warm-100"><span class="text-stone-500">${escapeHtml(t('empCardHireDate'))}</span><span class="font-mono text-warm-800">${escapeHtml(hireStr)}</span></div>` : ''}
           ${emp.phone ? `<div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardPhone'))}</span><span class="font-mono text-warm-800">${escapeHtml(emp.phone)}</span></div>` : ''}
@@ -1002,56 +1083,40 @@ window.HR = {
   },
   setPayslipLang(lang) {
     if (!I18N[lang]) return;
-    if (currentPayslipCtx && currentPayslipCtx.type === 'payslip') {
-      currentPayslipCtx.lang = lang;
-      renderPayslipDocument();
-    }
+    payslipDocLang = lang;
+    if (currentPayslipState) renderPayslipDocument(currentPayslipState.empId, currentPayslipState.month, payslipDocLang);
   },
-  setTawiLang(lang) {
-    tawiDocLang = lang === 'thEn' ? 'thEn' : 'th';
-    if (currentTawiState) {
-      currentPayslipCtx = { type: 'tawi', empId: currentTawiState.empId, year: currentTawiState.year, docLang: tawiDocLang };
-      render50Tawi(currentTawiState.empId, currentTawiState.year);
-    }
-  },
-  async downloadPayslipImage() {
-    setPayslipImageButtonsDisabled(true);
+  setTawiLang(lang) { tawiDocLang = lang === 'thEn' ? 'thEn' : 'th'; if (currentTawiState) render50Tawi(currentTawiState.empId, currentTawiState.year); },
+  async downloadPayslipPNG() {
     showToast(t('toastImgGenerating'), 'info');
     try {
-      const blob = await capturePayslipToBlob();
-      const filename = getPayslipImageFilename();
-      triggerBlobDownload(blob, filename);
+      const canvas = await captureDocumentCanvas();
+      triggerCanvasDownload(canvas, getActiveDocExportFilename());
       showToast(t('toastImgSaved'), 'success');
     } catch (err) {
-      console.error(err);
       showToast(t('toastImgError'), 'error');
-    } finally {
-      setPayslipImageButtonsDisabled(false);
     }
   },
-  async sharePayslipImage() {
-    setPayslipImageButtonsDisabled(true);
+  async sharePayslipLINE() {
     showToast(t('toastImgGenerating'), 'info');
     try {
-      const blob = await capturePayslipToBlob();
-      const filename = getPayslipImageFilename();
+      const canvas = await captureDocumentCanvas();
+      const filename = getActiveDocExportFilename();
+      const blob = await new Promise(res => canvas.toBlob(res, 'image/png'));
+      if (!blob) throw new Error('Blob failed');
       const file = new File([blob], filename, { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         try {
           await navigator.share({ files: [file], title: filename });
+          return;
         } catch (shareErr) {
           if (shareErr && shareErr.name === 'AbortError') return;
-          throw shareErr;
         }
-      } else {
-        triggerBlobDownload(blob, filename);
-        showToast(t('toastImgShareFallback'), 'info');
       }
+      triggerCanvasDownload(canvas, filename);
+      showToast(t('toastImgShareFallback'), 'info');
     } catch (err) {
-      console.error(err);
       showToast(t('toastImgError'), 'error');
-    } finally {
-      setPayslipImageButtonsDisabled(false);
     }
   },
   toggleKioskCamera() { kioskVirtualMode = !kioskVirtualMode; if (kioskVirtualMode) stopKioskCamera(); else if (kioskSelectedEmpId) initKioskCamera(); else updateCameraStatusUI(); },
@@ -1151,8 +1216,22 @@ window.HR = {
   },
   renderPayrollTab() { renderPayrollTab(); },
   async savePayrollRules() {
-    const rv = parseFloat(document.getElementById('rule-sso-rate').value), cv = parseInt(document.getElementById('rule-sso-cap').value, 10);
-    await persistSettings({ otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5, holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0, lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0, lateDeductionEnabled: document.getElementById('rule-late-enabled').checked, ssoEnabled: document.getElementById('rule-sso-enabled').checked, ssoRateThb: Number.isNaN(rv) ? 5 : rv, ssoCapThb: Number.isNaN(cv) ? 875 : cv, standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26 });
+    const rv = parseFloat(document.getElementById('rule-sso-rate').value);
+    const cv = parseInt(document.getElementById('rule-sso-cap').value, 10);
+    const abAmt = parseInt(document.getElementById('rule-att-bonus-amount')?.value, 10);
+    await persistSettings({
+      otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5,
+      holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0,
+      lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0,
+      lateDeductionEnabled: document.getElementById('rule-late-enabled').checked,
+      ssoEnabled: document.getElementById('rule-sso-enabled').checked,
+      ssoRateThb: Number.isNaN(rv) ? 5 : rv,
+      ssoCapThb: Number.isNaN(cv) ? 875 : cv,
+      standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26,
+      attendanceBonusEnabled: !!document.getElementById('rule-att-bonus-enabled')?.checked,
+      attendanceBonusAmount: Number.isNaN(abAmt) ? 1000 : Math.max(0, abAmt),
+      prorataEnabled: document.getElementById('rule-prorata-enabled')?.checked !== false
+    });
     showToast(t('toastRulesSaved'), 'success');
   },
   confirmClosePayroll() {
@@ -1160,9 +1239,31 @@ window.HR = {
     this.openConfirm(t('confirmClosePayrollTitle'), t('confirmClosePayrollMsg', { month: m }), async () => {
       const rows = state.employees.map(emp => {
         const r = calculateMonthlyPayroll(emp, m);
-        return { empId: emp.id, empSnapshot: { id: emp.id, name: emp.name, role: emp.role, payType: emp.payType, baseRate: emp.baseRate, idNumber: emp.idNumber || '', bankName: emp.bankName || '', bankAccount: emp.bankAccount || '' }, workDaysCount: r.workDaysCount, totalWorkedHours: r.totalWorkedHours, totalOtHours: r.totalOtHours, totalHolidayHours: r.totalHolidayHours, totalLateMins: r.totalLateMins, unpaidLeaveDays: r.unpaidLeaveDays, basePay: r.basePay, otPay: r.otPay, holidayPay: r.holidayPay, extraBonus: r.extraBonus, extraDeduction: r.extraDeduction, adjMemo: r.adjMemo, lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, whtDeduction: r.whtDeduction, employerSso: r.employerSso, totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay, employerTotalCost: r.employerTotalCost, transferPaid: false, transferPaidAt: '' };
+        return {
+          empId: emp.id,
+          empSnapshot: { id: emp.id, name: emp.name, role: emp.role, payType: emp.payType, baseRate: emp.baseRate, idNumber: emp.idNumber || '', bankName: emp.bankName || '', bankAccount: emp.bankAccount || '' },
+          workDaysCount: r.workDaysCount, totalWorkedHours: r.totalWorkedHours, totalOtHours: r.totalOtHours, totalHolidayHours: r.totalHolidayHours, totalLateMins: r.totalLateMins, unpaidLeaveDays: r.unpaidLeaveDays,
+          fullBasePay: r.fullBasePay, basePay: r.basePay, isProrated: r.isProrated, isNotEmployed: r.isNotEmployed, prorataEmployedDays: r.prorataEmployedDays, prorataTotalDays: r.prorataTotalDays,
+          otPay: r.otPay, holidayPay: r.holidayPay, attendanceBonus: r.attendanceBonus, extraBonus: r.extraBonus, extraDeduction: r.extraDeduction, adjMemo: r.adjMemo,
+          lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, whtDeduction: r.whtDeduction, employerSso: r.employerSso,
+          totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay, employerTotalCost: r.employerTotalCost,
+          transferPaid: false, transferPaidAt: ''
+        };
       });
-      await persistDoc('payroll_closures', m, { id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: 'THB', rulesSnapshot: { otMultiplier: state.settings.otMultiplier ?? 1.5, holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0, ssoRateThb: state.settings.ssoRateThb ?? 5, ssoCapThb: state.settings.ssoCapThb ?? 875, standardWorkDays: state.settings.standardWorkDays ?? 26 }, rows });
+      await persistDoc('payroll_closures', m, {
+        id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: 'THB',
+        rulesSnapshot: {
+          otMultiplier: state.settings.otMultiplier ?? 1.5,
+          holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0,
+          ssoRateThb: state.settings.ssoRateThb ?? 5,
+          ssoCapThb: state.settings.ssoCapThb ?? 875,
+          standardWorkDays: state.settings.standardWorkDays ?? 26,
+          attendanceBonusEnabled: state.settings.attendanceBonusEnabled === true,
+          attendanceBonusAmount: state.settings.attendanceBonusAmount ?? 1000,
+          prorataEnabled: state.settings.prorataEnabled !== false
+        },
+        rows
+      });
       showToast(t('toastPayrollClosed', { month: m }), 'success');
     });
   },
@@ -1186,7 +1287,8 @@ window.HR = {
   },
   estimateMonthlyWht() {
     const empId = document.getElementById('adj-f-emp').value, month = document.getElementById('adj-f-month').value, emp = state.employees.find(e => e.id === empId); if (!emp) return;
-    const r = calculateMonthlyPayroll(emp, month), curBonus = Number(document.getElementById('adj-f-bonus').value) || 0, annualTax = computeThaiProgressiveTax((r.basePay + r.otPay + r.holidayPay + curBonus) * 12, r.ssoDeduction * 12);
+    const r = calculateMonthlyPayroll(emp, month), curBonus = Number(document.getElementById('adj-f-bonus').value) || 0;
+    const annualTax = computeThaiProgressiveTax((r.basePay + r.otPay + r.holidayPay + (r.attendanceBonus || 0) + curBonus) * 12, r.ssoDeduction * 12);
     document.getElementById('adj-f-wht').value = Math.round(annualTax / 12); showToast(t('toastWhtEstimated'), 'info');
   },
   async savePayrollAdjustment(e) {
@@ -1195,20 +1297,29 @@ window.HR = {
     this.closeModal('modal-adj'); showToast(t('toastAdjSaved'), 'success');
   },
   openPayslipModal(empId) {
-    const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr();
-    const view = getPayrollViewData(m);
-    const r = view.rows.find(x => (x.empId || x.emp?.id) === empId);
-    if (!r) return;
     currentTawiState = null;
-    currentPayslipCtx = { type: 'payslip', empId, month: m, lang: getLang() };
     document.getElementById('tawi-lang-bar')?.classList.add('hidden');
+    const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr();
+    currentPayslipState = { empId, month: m };
+    payslipDocLang = getLang();
     document.getElementById('payslip-lang-bar')?.classList.remove('hidden');
-    renderPayslipDocument();
+    renderPayslipDocument(empId, m, payslipDocLang);
     document.getElementById('modal-payslip').classList.remove('hidden');
   },
   exportPayrollCSV() {
     const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), rows = [t('csvPayrollHeaders')];
-    view.rows.forEach(r => { rows.push([m, r.emp.name, r.emp.role, r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'), r.workDaysCount, r.totalWorkedHours, r.totalOtHours, r.totalHolidayHours, r.unpaidLeaveDays, r.basePay, r.otPay, r.holidayPay, r.extraBonus, r.lateDeduction, r.unpaidDeduction, r.extraDeduction, r.ssoDeduction, r.whtDeduction, r.employerSso, r.employerTotalCost, r.netPay, r.emp.idNumber || '', r.emp.bankName || '', r.emp.bankAccount || '', view.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'), view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : '-']); });
+    view.rows.forEach(r => {
+      rows.push([
+        m, r.emp.name, r.emp.role, r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'),
+        r.workDaysCount, r.totalWorkedHours, r.totalOtHours, r.totalHolidayHours, r.unpaidLeaveDays,
+        r.basePay, r.otPay, r.holidayPay, r.attendanceBonus || 0, r.extraBonus,
+        r.lateDeduction, r.unpaidDeduction, r.extraDeduction, r.ssoDeduction, r.whtDeduction,
+        r.employerSso, r.employerTotalCost, r.netPay,
+        r.emp.idNumber || '', r.emp.bankName || '', r.emp.bankAccount || '',
+        view.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'),
+        view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : '-'
+      ]);
+    });
     downloadCSV(`${t('csvPayrollPrefix')}_${m}.csv`, rows); showToast(t('toastCsvPayrollDone'), 'success');
   },
   exportSsoCSV() {
@@ -1241,14 +1352,11 @@ window.HR = {
     downloadCSV(`${t('csvAnnualPrefix')}_${year}.csv`, rows); showToast(t('toastCsvAnnualDone'), 'success');
   },
   open50TawiModal(empId) {
-    const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
-    currentTawiState = { empId, year };
-    tawiDocLang = 'th';
-    currentPayslipCtx = { type: 'tawi', empId, year, docLang: tawiDocLang };
+    currentPayslipState = null;
     document.getElementById('payslip-lang-bar')?.classList.add('hidden');
-    document.getElementById('tawi-lang-bar')?.classList.remove('hidden');
-    render50Tawi(empId, year);
-    document.getElementById('modal-payslip').classList.remove('hidden');
+    const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
+    currentTawiState = { empId, year }; tawiDocLang = 'th';
+    document.getElementById('tawi-lang-bar').classList.remove('hidden'); render50Tawi(empId, year); document.getElementById('modal-payslip').classList.remove('hidden');
   },
   async toggleWeeklyOff(idx) { const c = new Set(state.settings.weeklyOffDays || []); if (c.has(idx)) c.delete(idx); else c.add(idx); await persistSettings({ weeklyOffDays: Array.from(c).sort() }); },
   async addHoliday() {
@@ -1289,6 +1397,8 @@ window.HR = {
       document.getElementById('emp-f-pin').value = emp.pin; document.getElementById('emp-f-paytype').value = emp.payType; document.getElementById('emp-f-rate').value = emp.baseRate;
       document.getElementById('emp-f-break').value = emp.breakMinutes ?? 60; document.getElementById('emp-f-start').value = emp.shiftStart || '09:00'; document.getElementById('emp-f-end').value = emp.shiftEnd || '18:00';
       document.getElementById('emp-f-dayoff').value = String(emp.weeklyDayOff ?? -1); document.getElementById('emp-f-sso').checked = emp.ssoEligible !== false; document.getElementById('emp-f-active').checked = emp.active !== false;
+      const abEl = document.getElementById('emp-f-att-bonus');
+      if (abEl) abEl.checked = emp.attendanceBonusEligible ?? (emp.payType === 'MONTHLY');
       document.getElementById('emp-f-idnum').value = emp.idNumber || ''; document.getElementById('emp-f-phone').value = emp.phone || '';
       document.getElementById('emp-f-bank').value = emp.bankName || ''; document.getElementById('emp-f-account').value = emp.bankAccount || '';
       document.getElementById('emp-f-hire').value = emp.hireDate || ''; document.getElementById('emp-f-resign').value = emp.resignDate || '';
@@ -1299,6 +1409,8 @@ window.HR = {
       document.getElementById('emp-f-pin').value = String(Math.floor(1000 + Math.random() * 9000)); document.getElementById('emp-f-paytype').value = 'MONTHLY'; document.getElementById('emp-f-rate').value = '';
       document.getElementById('emp-f-break').value = 60; document.getElementById('emp-f-start').value = '09:00'; document.getElementById('emp-f-end').value = '18:00';
       document.getElementById('emp-f-dayoff').value = '-1'; document.getElementById('emp-f-sso').checked = true; document.getElementById('emp-f-active').checked = true;
+      const abEl = document.getElementById('emp-f-att-bonus');
+      if (abEl) abEl.checked = true;
       document.getElementById('emp-f-annual-quota').value = 6;
       ['emp-f-idnum', 'emp-f-phone', 'emp-f-bank', 'emp-f-account', 'emp-f-hire', 'emp-f-resign'].forEach(k => { document.getElementById(k).value = ''; });
     }
@@ -1309,7 +1421,29 @@ window.HR = {
     const id = document.getElementById('emp-f-id').value, pin = document.getElementById('emp-f-pin').value.trim(), dup = state.employees.find(x => x.pin === pin && x.id !== id);
     if (dup) { showToast(t('toastEmpPinDup', { pin, name: dup.name }), 'error'); return; }
     const ex = id ? state.employees.find(x => x.id === id) : null, docId = id || `emp_${Date.now()}`, qVal = parseInt(document.getElementById('emp-f-annual-quota').value, 10);
-    await persistDoc('employees', docId, { id: docId, name: document.getElementById('emp-f-name').value.trim(), role: document.getElementById('emp-f-role').value.trim(), pin, payType: document.getElementById('emp-f-paytype').value, baseRate: Number(document.getElementById('emp-f-rate').value) || 0, breakMinutes: parseInt(document.getElementById('emp-f-break').value, 10) || 0, shiftStart: document.getElementById('emp-f-start').value, shiftEnd: document.getElementById('emp-f-end').value, weeklyDayOff: parseInt(document.getElementById('emp-f-dayoff').value, 10), annualLeaveQuota: Number.isNaN(qVal) ? 6 : qVal, ssoEligible: document.getElementById('emp-f-sso').checked, active: document.getElementById('emp-f-active').checked, idNumber: document.getElementById('emp-f-idnum').value.trim(), phone: document.getElementById('emp-f-phone').value.trim(), bankName: document.getElementById('emp-f-bank').value.trim(), bankAccount: document.getElementById('emp-f-account').value.trim(), hireDate: document.getElementById('emp-f-hire').value, resignDate: document.getElementById('emp-f-resign').value, createdAt: ex?.createdAt || Date.now() });
+    await persistDoc('employees', docId, {
+      id: docId,
+      name: document.getElementById('emp-f-name').value.trim(),
+      role: document.getElementById('emp-f-role').value.trim(),
+      pin,
+      payType: document.getElementById('emp-f-paytype').value,
+      baseRate: Number(document.getElementById('emp-f-rate').value) || 0,
+      breakMinutes: parseInt(document.getElementById('emp-f-break').value, 10) || 0,
+      shiftStart: document.getElementById('emp-f-start').value,
+      shiftEnd: document.getElementById('emp-f-end').value,
+      weeklyDayOff: parseInt(document.getElementById('emp-f-dayoff').value, 10),
+      annualLeaveQuota: Number.isNaN(qVal) ? 6 : qVal,
+      ssoEligible: document.getElementById('emp-f-sso').checked,
+      attendanceBonusEligible: !!document.getElementById('emp-f-att-bonus')?.checked,
+      active: document.getElementById('emp-f-active').checked,
+      idNumber: document.getElementById('emp-f-idnum').value.trim(),
+      phone: document.getElementById('emp-f-phone').value.trim(),
+      bankName: document.getElementById('emp-f-bank').value.trim(),
+      bankAccount: document.getElementById('emp-f-account').value.trim(),
+      hireDate: document.getElementById('emp-f-hire').value,
+      resignDate: document.getElementById('emp-f-resign').value,
+      createdAt: ex?.createdAt || Date.now()
+    });
     this.closeModal('modal-employee'); showToast(id ? t('toastEmpUpdated') : t('toastEmpSaved'), 'success');
   },
   async toggleEmployeeActive(empId) {
