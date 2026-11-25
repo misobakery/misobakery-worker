@@ -1,0 +1,19 @@
+{
+  "name": "MISO Bakery HR & Kiosk",
+  "short_name": "MISO HR",
+  "description": "Store Employee Time Clock Kiosk & Payroll System",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#fdf8f3",
+  "theme_color": "#7c4a2d",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
