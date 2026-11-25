@@ -33,10 +33,12 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     .touch-btn:active { transform: scale(0.96); }
     @media print {
-      body * { visibility: hidden !important; }
-      #payslip-print-area, #payslip-print-area * { visibility: visible !important; }
-      #payslip-print-area { position: fixed !important; left: 0 !important; top: 0 !important; width: 100% !important; padding: 24px !important; background: #fff !important; box-shadow: none !important; border: none !important; }
-      .no-print { display: none !important; }
+      @page { size: A4 portrait; margin: 10mm; }
+      html, body { height: auto !important; min-height: 0 !important; overflow: visible !important; background: #fff !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+      #toast-container, #app-loader, #kiosk-app, #admin-login-screen, #admin-app, #modal-selfie, #modal-employee, #modal-log, #modal-leave, #modal-adj, #modal-confirm, #modal-annual-tax, .no-print { display: none !important; }
+      #modal-payslip { position: static !important; inset: auto !important; display: block !important; background: #fff !important; padding: 0 !important; overflow: visible !important; }
+      #modal-payslip > div { max-width: 100% !important; max-height: none !important; overflow: visible !important; box-shadow: none !important; border: none !important; padding: 0 !important; margin: 0 !important; }
+      #payslip-print-area { position: static !important; width: 100% !important; padding: 0 !important; }
     }
   </style>
 </head>
@@ -536,10 +538,17 @@
     </div>
   </div>
 
-  <!-- 모달 6: 급여명세서 & 50 Tawi 요약 인쇄 -->
+  <!-- 모달 6: 급여명세서 & 50 Tawi 공식 인쇄 -->
   <div id="modal-payslip" class="hidden fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-center justify-center p-4">
     <div class="bg-white rounded-3xl max-w-2xl w-full p-6 shadow-2xl max-h-[92vh] overflow-y-auto">
-      <div id="payslip-print-area" class="space-y-5"></div>
+      <div id="tawi-lang-bar" class="hidden no-print flex flex-wrap items-center justify-between gap-2 pb-3 mb-4 border-b border-warm-200 text-xs">
+        <span class="font-bold text-stone-600" data-i18n="tawiLangToggleLabel">인쇄 양식 언어</span>
+        <div class="flex items-center bg-warm-100 p-1 rounded-xl border border-warm-200 font-bold">
+          <button type="button" id="btn-tawi-th" onclick="HR.setTawiLang('th')" class="px-3 py-1 rounded-lg transition bg-white text-wood-700 shadow-sm" data-i18n="tawiModeTh">ภาษาไทย (태국어 단독)</button>
+          <button type="button" id="btn-tawi-then" onclick="HR.setTawiLang('thEn')" class="px-3 py-1 rounded-lg transition text-stone-600" data-i18n="tawiModeThEn">ไทย + EN (태국어·영문)</button>
+        </div>
+      </div>
+      <div id="payslip-print-area" class="space-y-4"></div>
       <div class="flex justify-end gap-2 pt-5 mt-5 border-t border-warm-200 no-print">
         <button type="button" onclick="HR.closeModal('modal-payslip')" class="px-4 py-2 rounded-xl border border-warm-300 text-stone-600 text-xs font-bold" data-i18n="btnClose">닫기</button>
         <button type="button" onclick="window.print()" class="px-5 py-2 rounded-xl bg-wood-600 hover:bg-wood-700 text-white text-xs font-bold flex items-center gap-1.5">
@@ -634,6 +643,7 @@
     let activeAppId = 'store-hr-prod', syncMode = 'local', activeCustomConfigObj = null, unsubscribers = [];
     let routeMode = 'admin', isAdminUnlocked = false, activeAdminTab = 'logs', previewLanguage = null;
     let kioskSelectedEmpId = null, kioskPinBuffer = '', kioskStream = null, kioskVirtualMode = false, kioskConfirmTimer = null, camSessionToken = 0;
+    let tawiDocLang = 'th', currentTawiState = null;
     let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {}, closures: {} };
     let pendingConfirmAction = null;
 
@@ -1165,6 +1175,124 @@
       return { year, closedCount, items: Array.from(map.values()) };
     }
 
+    function render50Tawi(empId, year) {
+      const TAWI = window.TAWI_DOC || {};
+      const doc = TAWI[tawiDocLang] || TAWI.th || {};
+      const isThOnly = tawiDocLang !== 'thEn';
+
+      const btnTh = document.getElementById('btn-tawi-th');
+      const btnThEn = document.getElementById('btn-tawi-then');
+      if (btnTh && btnThEn) {
+        btnTh.className = `px-3 py-1 rounded-lg transition ${isThOnly ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
+        btnThEn.className = `px-3 py-1 rounded-lg transition ${!isThOnly ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600'}`;
+      }
+
+      const summary = computeAnnualTaxSummary(year);
+      const empIdx = summary.items.findIndex(x => x.empId === empId);
+      const it = empIdx >= 0 ? summary.items[empIdx] : null;
+      if (!it) return;
+
+      const emp = it.emp;
+      const yearBe = Number(year) + 543;
+      const now = new Date();
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      const yyyyBe = yyyy + 543;
+      const issueDateStr = isThOnly ? `${dd}/${mm}/${yyyyBe}` : `${yyyy}-${mm}-${dd} (B.E. ${yyyyBe})`;
+      const docNoStr = `50TW-${year}-${String(empIdx + 1).padStart(3, '0')}`;
+
+      const rawStore = (state.settings.storeName || '').trim();
+      const tawiStoreName = (!rawStore || rawStore === '매장 인사·급여 관리') ? 'MISO Bakery' : rawStore;
+      const subtitleText = String(doc.subtitle || '').replaceAll('{year}', String(year)).replaceAll('{yearBe}', String(yearBe));
+      const hireDisplay = emp.hireDate ? `${emp.hireDate}${emp.resignDate ? ` - ${emp.resignDate}` : ''}` : (emp.resignDate || '-');
+
+      document.getElementById('payslip-print-area').innerHTML = `
+        <div class="space-y-3 text-warm-900">
+          <div class="border-b-2 border-warm-900 pb-3 flex items-start justify-between gap-4">
+            <div>
+              <p class="text-[10px] text-stone-500 font-medium">${escapeHtml(doc.copyLabel || '')}</p>
+              <h3 class="text-lg sm:text-xl font-extrabold text-warm-900 mt-1">${escapeHtml(doc.title || '')}</h3>
+              <p class="text-xs font-semibold text-wood-700 mt-0.5">${escapeHtml(subtitleText)}</p>
+            </div>
+            <div class="text-right text-[11px] text-stone-600 shrink-0 space-y-0.5">
+              <div><span class="font-bold">${escapeHtml(doc.docNo || '')}:</span> <span class="font-mono font-bold text-warm-900">${escapeHtml(docNoStr)}</span></div>
+              <div><span class="font-bold">${escapeHtml(doc.issueDate || '')}:</span> <span class="font-mono font-bold text-warm-900">${escapeHtml(issueDateStr)}</span></div>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+            <div class="bg-warm-50 border border-warm-300 rounded-xl p-3 space-y-1">
+              <div class="font-extrabold text-wood-700">${escapeHtml(doc.payerTitle || '')}</div>
+              <div class="font-extrabold text-sm text-warm-900">${escapeHtml(tawiStoreName)}</div>
+              <div class="font-mono text-stone-700"><span class="font-semibold">${escapeHtml(doc.taxId || '')}:</span> ${escapeHtml(state.settings.storeTaxId || '-')}</div>
+              <div class="text-stone-700"><span class="font-semibold">${escapeHtml(doc.address || '')}:</span> ${escapeHtml(state.settings.storeAddress || 'Chiang Rai, Thailand')}</div>
+            </div>
+            <div class="bg-warm-50 border border-warm-300 rounded-xl p-3 space-y-1">
+              <div class="font-extrabold text-wood-700">${escapeHtml(doc.payeeTitle || '')}</div>
+              <div class="font-extrabold text-sm text-warm-900">${escapeHtml(emp.name)}</div>
+              <div class="font-mono text-stone-700"><span class="font-semibold">${escapeHtml(doc.taxId || '')}:</span> ${escapeHtml(emp.idNumber || '-')}</div>
+              <div class="font-mono text-stone-700"><span class="font-semibold">${escapeHtml(doc.hireDate || '')}:</span> ${escapeHtml(hireDisplay)}</div>
+            </div>
+          </div>
+
+          <div class="border border-warm-300 rounded-xl p-3 bg-white text-xs space-y-1">
+            <div class="font-extrabold text-warm-900">${escapeHtml(doc.incomeTypeTitle || '')}</div>
+            <div class="flex flex-wrap items-center justify-between gap-2 text-warm-800">
+              <span class="font-semibold">☑ ${escapeHtml(doc.income401 || '')}</span>
+              <span class="font-bold text-wood-700">${escapeHtml(doc.withholdType || '')}</span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
+            <div class="border border-warm-300 bg-white rounded-xl p-3"><span class="text-stone-500 block text-[11px]">${escapeHtml(doc.sumGross || '')}</span><strong class="font-mono text-sm text-warm-900">${formatMoney(it.gross)}</strong></div>
+            <div class="border border-warm-300 bg-white rounded-xl p-3"><span class="text-stone-500 block text-[11px]">${escapeHtml(doc.sumWht || '')}</span><strong class="font-mono text-sm text-indigo-800">${formatMoney(it.wht)}</strong></div>
+            <div class="border border-warm-300 bg-white rounded-xl p-3"><span class="text-stone-500 block text-[11px]">${escapeHtml(doc.sumEmpSso || '')}</span><strong class="font-mono text-sm text-stone-800">${formatMoney(it.empSso)}</strong></div>
+            <div class="border border-warm-300 bg-white rounded-xl p-3"><span class="text-stone-500 block text-[11px]">${escapeHtml(doc.sumErSso || '')}</span><strong class="font-mono text-sm text-sky-900">${formatMoney(it.erSso)}</strong></div>
+            <div class="border-2 border-warm-800 bg-warm-50 text-warm-900 rounded-xl p-3 col-span-2 sm:col-span-1"><span class="text-wood-700 font-bold block text-[11px]">${escapeHtml(doc.sumNet || '')}</span><strong class="font-mono text-sm font-extrabold text-warm-900">${formatMoney(it.net)}</strong></div>
+          </div>
+
+          <div class="overflow-x-auto rounded-xl border border-warm-300">
+            <table class="w-full text-left border-collapse text-[11px]">
+              <thead>
+                <tr class="bg-warm-100 text-warm-900 border-b border-warm-300">
+                  <th class="py-1.5 px-2.5 font-extrabold">${escapeHtml(doc.colMonth || '')}</th>
+                  <th class="py-1.5 px-2.5 font-extrabold">${escapeHtml(doc.colStatus || '')}</th>
+                  <th class="py-1.5 px-2.5 font-extrabold text-right">${escapeHtml(doc.colGross || '')}</th>
+                  <th class="py-1.5 px-2.5 font-extrabold text-right">${escapeHtml(doc.colWht || '')}</th>
+                  <th class="py-1.5 px-2.5 font-extrabold text-right">${escapeHtml(doc.colSso || '')}</th>
+                  <th class="py-1.5 px-2.5 font-extrabold text-right">${escapeHtml(doc.colNet || '')}</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-warm-200 bg-white">
+                ${it.months.map(m => `
+                  <tr>
+                    <td class="py-1.5 px-2.5 font-mono font-bold">${escapeHtml(m.ym)}</td>
+                    <td class="py-1.5 px-2.5">${escapeHtml(m.isClosed ? (doc.statusClosed || '') : (doc.statusOpen || ''))}</td>
+                    <td class="py-1.5 px-2.5 text-right font-mono">${formatMoney(m.gross)}</td>
+                    <td class="py-1.5 px-2.5 text-right font-mono text-indigo-800">${formatMoney(m.wht)}</td>
+                    <td class="py-1.5 px-2.5 text-right font-mono">${formatMoney(m.empSso)}</td>
+                    <td class="py-1.5 px-2.5 text-right font-mono font-bold">${formatMoney(m.net)}</td>
+                  </tr>`).join('')}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="border-t border-warm-300 pt-3 flex flex-col sm:flex-row sm:items-end justify-between gap-4 text-xs">
+            <p class="text-[11px] text-stone-700 font-medium">${escapeHtml(doc.certifyText || '')}</p>
+            <div class="flex items-center justify-end gap-4 shrink-0">
+              <div class="text-center space-y-1">
+                <div class="pt-4 font-mono text-stone-500">...........................................</div>
+                <div class="font-bold text-warm-900">${escapeHtml(doc.signPayer || '')}</div>
+              </div>
+              <div class="w-16 h-16 rounded-full border-2 border-dashed border-stone-400 flex items-center justify-center text-center text-[10px] text-stone-500 font-semibold p-1 leading-tight">
+                ${escapeHtml(doc.stampLabel || '')}
+              </div>
+            </div>
+          </div>
+        </div>`;
+    }
+
     function renderLogsTab() {
       const today = getTodayStr(), activeEmps = state.employees.filter(e => e.active !== false), todayLogs = state.attendance.filter(l => l.date === today);
       const lateCnt = todayLogs.filter(l => analyzeAttendance(l, state.employees.find(e => e.id === l.empId)).lateMins > 0).length;
@@ -1326,6 +1454,10 @@
           previewLanguage = lang; try { window.sessionStorage.setItem(SESSION_LANG_PREVIEW_KEY, lang); } catch (e) {}
           renderAllActiveViews(); showToast(t('toastLangPreview'), 'info');
         }
+      },
+      setTawiLang(lang) {
+        tawiDocLang = lang === 'thEn' ? 'thEn' : 'th';
+        if (currentTawiState) render50Tawi(currentTawiState.empId, currentTawiState.year);
       },
       toggleKioskCamera() { kioskVirtualMode = !kioskVirtualMode; if (kioskVirtualMode) stopKioskCamera(); else if (kioskSelectedEmpId) initKioskCamera(); else updateCameraStatusUI(); },
       selectKioskEmp(empId) { kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView(); if (!kioskVirtualMode) initKioskCamera(); },
@@ -1516,6 +1648,8 @@
         this.closeModal('modal-adj'); showToast(t('toastAdjSaved'), 'success');
       },
       openPayslipModal(empId) {
+        currentTawiState = null;
+        document.getElementById('tawi-lang-bar').classList.add('hidden');
         const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), r = view.rows.find(x => (x.empId || x.emp?.id) === empId); if (!r) return;
         const emp = r.emp, rules = view.rules;
         const storeMeta = [state.settings.storeTaxId ? `Tax ID: ${state.settings.storeTaxId}` : '', state.settings.storeAddress || ''].filter(Boolean).join(' · ');
@@ -1586,7 +1720,7 @@
       exportBankTransferCSV() {
         const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), rows = [t('csvBankHeaders')];
         view.rows.forEach(r => {
-          rows.push([m, r.emp.bankName || '', r.emp.bankAccount || '', r.emp.name, r.netPay, `Salary ${m}`, view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : t('badgePayrollOpen')]);
+          rows.push([m, r.emp.bankName || '', r.emp.bankAccount || '', r.emp.name, r.netPay, `Salary ${m}`, r.transferPaid ? t('csvStatusPaid') : t('csvStatusUnpaid')]);
         });
         downloadCSV(`${t('csvBankPrefix')}_${m}.csv`, rows); showToast(t('toastCsvBankDone'), 'success');
       },
@@ -1633,41 +1767,10 @@
       },
       open50TawiModal(empId) {
         const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
-        const summary = computeAnnualTaxSummary(year), it = summary.items.find(x => x.empId === empId); if (!it) return;
-        const emp = it.emp;
-        document.getElementById('payslip-print-area').innerHTML = `
-          <div class="border-b-2 border-warm-900 pb-4">
-            <span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(t('tawiSub'))}</span>
-            <h3 class="text-xl sm:text-2xl font-extrabold text-warm-900 mt-1">${escapeHtml(t('tawiTitle', { year }))}</h3>
-          </div>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-            <div class="bg-warm-50 border border-warm-200 rounded-2xl p-3.5 space-y-1">
-              <div class="font-extrabold text-wood-700 mb-1">${escapeHtml(t('tawiStoreLabel'))}</div>
-              <div class="font-bold text-warm-900 text-sm">${escapeHtml(getDisplayStoreName())}</div>
-              <div class="font-mono text-stone-600">Tax ID: ${escapeHtml(state.settings.storeTaxId || '-')}</div>
-              <div class="text-stone-600">${escapeHtml(state.settings.storeAddress || '')}</div>
-            </div>
-            <div class="bg-warm-50 border border-warm-200 rounded-2xl p-3.5 space-y-1">
-              <div class="font-extrabold text-wood-700 mb-1">${escapeHtml(t('tawiEmpLabel'))}</div>
-              <div class="font-bold text-warm-900 text-sm">${escapeHtml(emp.name)} <span class="text-xs font-normal text-stone-500">(${escapeHtml(emp.role)})</span></div>
-              <div class="font-mono text-stone-600">${escapeHtml(t('empFIdNumber'))}: ${escapeHtml(emp.idNumber || '-')}</div>
-              <div class="font-mono text-stone-600">${escapeHtml(t('empCardHireDate'))}: ${escapeHtml(emp.hireDate || '-')}${emp.resignDate ? ` · ${escapeHtml(t('empCardResign'))}: ${escapeHtml(emp.resignDate)}` : ''}</div>
-            </div>
-          </div>
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
-            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualGross'))}</span><strong class="font-mono text-sm text-warm-900">${formatMoney(it.gross)}</strong></div>
-            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualWht'))}</span><strong class="font-mono text-sm text-indigo-700">${formatMoney(it.wht)}</strong></div>
-            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualEmpSso'))}</span><strong class="font-mono text-sm text-stone-700">${formatMoney(it.empSso)}</strong></div>
-            <div class="border border-warm-200 rounded-xl p-3"><span class="text-stone-500 block">${escapeHtml(t('thAnnualErSso'))}</span><strong class="font-mono text-sm text-sky-800">${formatMoney(it.erSso)}</strong></div>
-            <div class="bg-warm-900 text-white rounded-xl p-3 col-span-2 sm:col-span-1"><span class="text-stone-300 block">${escapeHtml(t('thAnnualNet'))}</span><strong class="font-mono text-sm text-amber-300">${formatMoney(it.net)}</strong></div>
-          </div>
-          <div class="overflow-x-auto rounded-2xl border border-warm-200">
-            <table class="w-full text-left border-collapse text-xs">
-              <thead><tr class="bg-warm-100 text-warm-800 border-b border-warm-200"><th class="py-2 px-3 font-extrabold">${escapeHtml(t('thDate'))}</th><th class="py-2 px-3 font-extrabold">${escapeHtml(t('thStatus'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualGross'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualWht'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thAnnualEmpSso'))}</th><th class="py-2 px-3 font-extrabold text-right">${escapeHtml(t('thPayNet'))}</th></tr></thead>
-              <tbody class="divide-y divide-warm-200">${it.months.map(m => `<tr><td class="py-2 px-3 font-mono font-bold">${escapeHtml(m.ym)}</td><td class="py-2 px-3">${escapeHtml(m.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'))}</td><td class="py-2 px-3 text-right font-mono">${formatMoney(m.gross)}</td><td class="py-2 px-3 text-right font-mono text-indigo-700">${formatMoney(m.wht)}</td><td class="py-2 px-3 text-right font-mono">${formatMoney(m.empSso)}</td><td class="py-2 px-3 text-right font-mono font-bold">${formatMoney(m.net)}</td></tr>`).join('')}</tbody>
-            </table>
-          </div>
-          <p class="text-[11px] text-stone-500 bg-warm-50 px-3.5 py-2.5 rounded-xl border border-warm-200">${escapeHtml(t('tawiDisclaimer'))} (${escapeHtml(t('payslipIssuedAt', { date: getTodayStr() }))})</p>`;
+        currentTawiState = { empId, year };
+        tawiDocLang = 'th';
+        document.getElementById('tawi-lang-bar').classList.remove('hidden');
+        render50Tawi(empId, year);
         document.getElementById('modal-payslip').classList.remove('hidden');
       },
       async toggleWeeklyOff(idx) { const c = new Set(state.settings.weeklyOffDays || []); if (c.has(idx)) c.delete(idx); else c.add(idx); await persistSettings({ weeklyOffDays: Array.from(c).sort() }); },
