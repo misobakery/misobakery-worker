@@ -9,12 +9,8 @@ const LOCAL_DATA_KEY = 'store_hr_payroll_local_data_v2';
 const LOCAL_FB_CFG_KEY = 'store_hr_custom_fb_cfg_v2';
 const ADMIN_AUTH_SESSION_KEY = 'store_hr_admin_unlocked_v2';
 const SESSION_LANG_PREVIEW_KEY = 'store_hr_lang_preview_v2';
-
-const DEFAULT_SHIFT_TEMPLATES = [
-  { id: 'tpl_open', name: '오픈조 (Open)', start: '07:00', end: '16:00', breakMinutes: 60, color: 'amber' },
-  { id: 'tpl_mid', name: '미들조 (Mid)', start: '09:00', end: '18:00', breakMinutes: 60, color: 'emerald' },
-  { id: 'tpl_close', name: '마감조 (Close)', start: '12:00', end: '21:00', breakMinutes: 60, color: 'indigo' }
-];
+const KIOSK_DEFAULT_KEY = 'hr_kiosk_default';
+const KIOSK_WAKELOCK_KEY = 'hr_kiosk_wakelock';
 
 const DEFAULT_SETTINGS = {
   storeName: '매장 인사·급여 관리',
@@ -33,7 +29,6 @@ const DEFAULT_SETTINGS = {
   ssoCapThb: 875,
   standardWorkDays: 26,
   weeklyOffDays: [0],
-  shiftTemplates: DEFAULT_SHIFT_TEMPLATES,
   seeded: false
 };
 
@@ -41,9 +36,9 @@ let db = null, auth = null, currentUser = null;
 let activeAppId = 'store-hr-prod', syncMode = 'local', activeCustomConfigObj = null, unsubscribers = [];
 let routeMode = 'admin', isAdminUnlocked = false, activeAdminTab = 'logs', previewLanguage = null;
 let kioskSelectedEmpId = null, kioskPinBuffer = '', kioskStream = null, kioskVirtualMode = false, kioskConfirmTimer = null, camSessionToken = 0;
+let deferredInstallPrompt = null, wakeLockSentinel = null, wakeLockDesired = true, kioskIdleTimer = null, pwaEventsBound = false;
 let tawiDocLang = 'th', currentTawiState = null, pendingConfirmAction = null;
-let shiftWeekStartStr = getMondayOfWeek(getTodayStr());
-let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {}, closures: {}, schedules: {} };
+let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {}, closures: {} };
 
 function getLang() {
   const c = previewLanguage || state.settings.language || 'ko';
@@ -80,31 +75,14 @@ function applyStaticI18n() {
     });
   });
   updateKioskClockOnce();
+  updateWakeLockUI();
+  updateFullscreenUI();
+  updateDeviceKioskPinUI();
 }
 
 function getTodayStr() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function formatDateObj(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-}
-function addDaysStr(dateStr, days) {
-  const d = new Date(dateStr + 'T00:00:00');
-  d.setDate(d.getDate() + days);
-  return formatDateObj(d);
-}
-function getMondayOfWeek(dateStr) {
-  const d = new Date(dateStr + 'T00:00:00');
-  const dow = d.getDay();
-  const diff = dow === 0 ? -6 : 1 - dow;
-  d.setDate(d.getDate() + diff);
-  return formatDateObj(d);
-}
-function getWeekDates(mondayStr) {
-  const arr = [];
-  for (let i = 0; i < 7; i++) arr.push(addDaysStr(mondayStr, i));
-  return arr;
 }
 function getCurrentMonthStr() { return getTodayStr().slice(0, 7); }
 function getNowTimeStr() {
@@ -121,20 +99,6 @@ function escapeHtml(s) {
 }
 function formatMoney(amt) {
   return `฿${Math.round(Number(amt) || 0).toLocaleString('en-US')}`;
-}
-function getShiftTemplates() {
-  return Array.isArray(state.settings.shiftTemplates) ? state.settings.shiftTemplates : DEFAULT_SHIFT_TEMPLATES;
-}
-function getShiftColorClasses(color) {
-  const map = {
-    amber: 'bg-amber-50 border-amber-300 text-amber-900',
-    emerald: 'bg-emerald-50 border-emerald-300 text-emerald-900',
-    sky: 'bg-sky-50 border-sky-300 text-sky-900',
-    indigo: 'bg-indigo-50 border-indigo-300 text-indigo-900',
-    rose: 'bg-rose-50 border-rose-300 text-rose-900',
-    stone: 'bg-stone-100 border-stone-300 text-stone-800'
-  };
-  return map[color] || map.amber;
 }
 function showToast(msg, type = 'info') {
   const c = document.getElementById('toast-container'), el = document.createElement('div');
@@ -170,6 +134,148 @@ function decodeCfgParam(enc) {
 function safeLocalGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
 function safeLocalSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
 function safeLocalRemove(k) { try { window.localStorage.removeItem(k); } catch (e) {} }
+
+wakeLockDesired = safeLocalGet(KIOSK_WAKELOCK_KEY) !== '0';
+
+function isKioskActive() {
+  return routeMode === 'kiosk';
+}
+function isStandalonePwa() {
+  try {
+    return (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || window.navigator.standalone === true;
+  } catch (e) {
+    return false;
+  }
+}
+function registerServiceWorker() {
+  try {
+    if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+      navigator.serviceWorker.register('./sw.js').catch(() => {});
+    }
+  } catch (e) {}
+}
+function updateOfflineBanner() {
+  const offline = !navigator.onLine;
+  document.getElementById('kiosk-offline-banner')?.classList.toggle('hidden', !offline);
+}
+function updateWakeLockUI() {
+  const dot = document.getElementById('wakelock-dot');
+  const lbl = document.getElementById('wakelock-label');
+  const btn = document.getElementById('btn-kiosk-wakelock');
+  const active = !!wakeLockSentinel;
+  if (dot) dot.className = `w-2 h-2 rounded-full ${active ? 'bg-emerald-500 animate-pulse' : 'bg-stone-400'}`;
+  if (lbl) lbl.textContent = active ? t('kioskWakeOn') : t('kioskWakeOff');
+  if (btn) btn.className = active
+    ? 'px-2.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition flex items-center gap-1.5'
+    : 'px-2.5 py-1.5 rounded-xl border border-warm-200 bg-white text-[11px] font-bold text-stone-600 hover:bg-warm-50 transition flex items-center gap-1.5';
+}
+async function acquireWakeLock(silent = true) {
+  if (!isKioskActive() || !wakeLockDesired) {
+    updateWakeLockUI();
+    return false;
+  }
+  if (!('wakeLock' in navigator)) {
+    if (!silent) showToast(t('toastWakeUnsupported'), 'warning');
+    updateWakeLockUI();
+    return false;
+  }
+  if (wakeLockSentinel) {
+    updateWakeLockUI();
+    return true;
+  }
+  try {
+    wakeLockSentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel.addEventListener('release', () => {
+      wakeLockSentinel = null;
+      updateWakeLockUI();
+    });
+    updateWakeLockUI();
+    return true;
+  } catch (e) {
+    updateWakeLockUI();
+    return false;
+  }
+}
+async function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    try { await wakeLockSentinel.release(); } catch (e) {}
+    wakeLockSentinel = null;
+  }
+  updateWakeLockUI();
+}
+function updateFullscreenUI() {
+  const btn = document.getElementById('btn-kiosk-fullscreen');
+  if (!btn) return;
+  if (isStandalonePwa() || document.fullscreenEnabled === false) {
+    btn.classList.add('hidden');
+    return;
+  }
+  btn.classList.remove('hidden');
+  btn.textContent = document.fullscreenElement ? t('kioskFullscreenOff') : t('kioskFullscreenOn');
+}
+function updateDeviceKioskPinUI() {
+  const btn = document.getElementById('btn-toggle-pin-kiosk');
+  if (!btn) return;
+  const pinned = safeLocalGet(KIOSK_DEFAULT_KEY) === '1';
+  btn.textContent = pinned ? t('btnUnpinKioskDevice') : t('btnPinKioskDevice');
+  btn.className = pinned
+    ? 'px-3.5 py-2 rounded-xl border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-bold transition'
+    : 'px-3.5 py-2 rounded-xl border border-warm-300 bg-warm-50 hover:bg-warm-100 text-warm-900 text-xs font-bold transition';
+}
+function clearKioskIdleTimer() {
+  if (kioskIdleTimer) {
+    clearTimeout(kioskIdleTimer);
+    kioskIdleTimer = null;
+  }
+}
+function scheduleKioskIdleReset() {
+  clearKioskIdleTimer();
+  if (!isKioskActive()) return;
+  kioskIdleTimer = setTimeout(() => {
+    if (!isKioskActive()) return;
+    if (kioskSelectedEmpId !== null || kioskPinBuffer.length > 0 || kioskStream) {
+      kioskSelectedEmpId = null;
+      kioskPinBuffer = '';
+      updateKioskPinDots();
+      stopKioskCamera();
+      renderKioskView();
+    }
+  }, 30000);
+}
+function initPwaAndKioskGuards() {
+  if (pwaEventsBound) return;
+  pwaEventsBound = true;
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    document.getElementById('btn-kiosk-install')?.classList.remove('hidden');
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    document.getElementById('btn-kiosk-install')?.classList.add('hidden');
+  });
+  window.addEventListener('online', updateOfflineBanner);
+  window.addEventListener('offline', updateOfflineBanner);
+  document.addEventListener('fullscreenchange', updateFullscreenUI);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && wakeLockDesired && isKioskActive()) {
+      acquireWakeLock(true);
+    }
+  });
+  const kioskEl = document.getElementById('kiosk-app');
+  if (kioskEl) {
+    const onKioskInteraction = () => {
+      if (!isKioskActive()) return;
+      scheduleKioskIdleReset();
+      if (wakeLockDesired && !wakeLockSentinel) {
+        acquireWakeLock(true);
+      }
+    };
+    kioskEl.addEventListener('pointerdown', onKioskInteraction, { passive: true });
+    kioskEl.addEventListener('click', onKioskInteraction, { passive: true });
+    kioskEl.addEventListener('keydown', onKioskInteraction);
+  }
+}
 
 function resolveFirebaseSource() {
   const params = new URLSearchParams(window.location.search);
@@ -227,8 +333,7 @@ async function initDataLayer() {
           leaves: p.leaves || [],
           holidays: p.holidays || [],
           adjustments: p.adjustments || {},
-          closures: p.closures || {},
-          schedules: p.schedules || {}
+          closures: p.closures || {}
         };
         renderAllActiveViews();
       } catch (err) {}
@@ -255,7 +360,6 @@ function attachFirestoreListeners() {
     unsubscribers.push(onSnapshot(fsCol('holidays'), s => { state.holidays = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.date || '').localeCompare(b.date || '')); renderAllActiveViews(); }));
     unsubscribers.push(onSnapshot(fsCol('payroll_adjustments'), s => { const m = {}; s.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); state.adjustments = m; renderAllActiveViews(); }));
     unsubscribers.push(onSnapshot(fsCol('payroll_closures'), s => { const m = {}; s.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); state.closures = m; renderAllActiveViews(); }));
-    unsubscribers.push(onSnapshot(fsCol('schedules'), s => { const m = {}; s.docs.forEach(d => { m[d.id] = { id: d.id, ...d.data() }; }); state.schedules = m; renderAllActiveViews(); }));
     setTimeout(() => { if (!done) { done = true; resolve(); } }, 4000);
   });
 }
@@ -277,7 +381,6 @@ async function removeDoc(col, id) {
 function applyLocalMutation(col, id, obj, del) {
   if (col === 'payroll_adjustments') { if (del) delete state.adjustments[id]; else state.adjustments[id] = { id, ...obj }; return; }
   if (col === 'payroll_closures') { if (del) delete state.closures[id]; else state.closures[id] = { id, ...obj }; return; }
-  if (col === 'schedules') { if (del) delete state.schedules[id]; else state.schedules[id] = { id, ...obj }; return; }
   const arr = state[col]; if (!Array.isArray(arr)) return;
   const idx = arr.findIndex(x => x.id === id);
   if (del) { if (idx !== -1) arr.splice(idx, 1); } else { const r = { id, ...obj }; if (idx !== -1) arr[idx] = r; else arr.unshift(r); }
@@ -295,8 +398,7 @@ function loadLocalFallbackData() {
         leaves: p.leaves || [],
         holidays: p.holidays || [],
         adjustments: p.adjustments || {},
-        closures: p.closures || {},
-        schedules: p.schedules || {}
+        closures: p.closures || {}
       };
       return;
     } catch (e) {}
@@ -342,7 +444,13 @@ async function seedInitialSampleData() {
   await persistDoc('holidays', 'sample_hol_1', { id: 'sample_hol_1', date: `${ym}-15`, name: 'Chiang Rai Store Holiday (Sample)', isSample: true });
 }
 
-function detectRouteMode() { return (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase() === 'kiosk' ? 'kiosk' : 'admin'; }
+function detectRouteMode() {
+  const modeParam = (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase();
+  if (modeParam === 'admin') return 'admin';
+  if (modeParam === 'kiosk') return 'kiosk';
+  if (safeLocalGet(KIOSK_DEFAULT_KEY) === '1') return 'kiosk';
+  return 'admin';
+}
 function buildRoleUrl(mode) {
   const u = new URL(window.location.href); u.searchParams.set('mode', mode);
   if (activeCustomConfigObj && !CUSTOM_FIREBASE_CONFIG) { const e = encodeCfgParam(activeCustomConfigObj); if (e) u.searchParams.set('cfg', e); } else u.searchParams.delete('cfg');
@@ -362,9 +470,18 @@ function applyRouteUI() {
   ['kiosk-app', 'admin-login-screen', 'admin-app'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
   if (routeMode === 'kiosk') {
     document.getElementById('kiosk-app')?.classList.remove('hidden');
-    startKioskClock(); stopKioskCamera(); renderAllActiveViews();
-  } else {
+    startKioskClock();
     stopKioskCamera();
+    updateOfflineBanner();
+    updateFullscreenUI();
+    if (wakeLockDesired) acquireWakeLock(true);
+    else updateWakeLockUI();
+    scheduleKioskIdleReset();
+    renderAllActiveViews();
+  } else {
+    clearKioskIdleTimer();
+    stopKioskCamera();
+    releaseWakeLock();
     try { isAdminUnlocked = window.sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) === 'true'; } catch (e) {}
     document.getElementById(isAdminUnlocked ? 'admin-app' : 'admin-login-screen')?.classList.remove('hidden');
     renderAllActiveViews();
@@ -378,7 +495,7 @@ function renderAllActiveViews() {
   const lt = document.getElementById('login-store-title'); if (lt) lt.textContent = `${sn} · ${t('loginTitleSuffix')}`;
   updateSyncBadges(); updateCameraStatusUI();
   if (routeMode === 'kiosk') renderKioskView();
-  else if (isAdminUnlocked) { renderLogsTab(); renderShiftsTab(); renderPayrollTab(); renderLeavesTab(); renderEmployeesTab(); renderSettingsTab(); }
+  else if (isAdminUnlocked) { renderLogsTab(); renderPayrollTab(); renderLeavesTab(); renderEmployeesTab(); renderSettingsTab(); }
 }
 
 let clockInterval = null;
@@ -451,19 +568,14 @@ function captureCompressedSelfie(empName, actionLabel) {
 
 function renderKioskView() {
   const activeEmps = state.employees.filter(e => e.active !== false), grid = document.getElementById('kiosk-emp-grid'); if (!grid) return;
-  const today = getTodayStr();
   const sel = activeEmps.find(e => e.id === kioskSelectedEmpId);
   document.getElementById('kiosk-selected-label').textContent = sel ? sel.name : t('notSelected');
   if (kioskPinBuffer.length < 4) document.getElementById('kiosk-pin-hint').textContent = sel ? t('kioskPinHintEmp', { name: sel.name }) : t('kioskPinHintDefault');
   grid.innerHTML = activeEmps.length === 0 ? `<div class="col-span-full py-6 text-center text-xs text-stone-400">${escapeHtml(t('kioskNoActiveEmp'))}</div>` : activeEmps.map(e => {
     const s = kioskSelectedEmpId === e.id;
-    const eff = getEffectiveShiftForDate(e, today);
-    const shiftLine = eff.fromSchedule
-      ? `<div class="text-[10px] mt-1 font-mono font-bold truncate ${s ? 'text-amber-200' : (eff.isScheduledOff ? 'text-rose-600' : 'text-wood-700')}">${eff.isScheduledOff ? 'OFF' : `${escapeHtml(eff.shiftName)} ${escapeHtml(eff.shiftStart)}~${escapeHtml(eff.shiftEnd)}`}</div>`
-      : '';
-    return `<button type="button" onclick="HR.selectKioskEmp('${e.id}')" class="touch-btn p-3 rounded-2xl border text-left transition ${s ? 'bg-wood-600 text-white border-wood-600 shadow-md' : 'bg-warm-50 hover:bg-warm-100 text-warm-900 border-warm-200'}"><div class="font-extrabold text-sm truncate">${escapeHtml(e.name)}</div><div class="text-[11px] truncate ${s ? 'text-amber-100' : 'text-stone-500'}">${escapeHtml(e.role)}</div>${shiftLine}</button>`;
+    return `<button type="button" onclick="HR.selectKioskEmp('${e.id}')" class="touch-btn p-3 rounded-2xl border text-left transition ${s ? 'bg-wood-600 text-white border-wood-600 shadow-md' : 'bg-warm-50 hover:bg-warm-100 text-warm-900 border-warm-200'}"><div class="font-extrabold text-sm truncate">${escapeHtml(e.name)}</div><div class="text-[11px] truncate ${s ? 'text-amber-100' : 'text-stone-500'}">${escapeHtml(e.role)}</div></button>`;
   }).join('');
-  const logs = state.attendance.filter(l => l.date === today), wk = logs.filter(l => l.clockIn && !l.clockOut).length;
+  const today = getTodayStr(), logs = state.attendance.filter(l => l.date === today), wk = logs.filter(l => l.clockIn && !l.clockOut).length;
   document.getElementById('kiosk-today-count').textContent = t('kioskTodayCount', { w: wk, t: logs.length });
   document.getElementById('kiosk-today-chips').innerHTML = logs.length === 0 ? `<span class="text-xs text-stone-400">${escapeHtml(t('kioskTodayEmpty'))}</span>` : logs.map(l => {
     const emp = state.employees.find(e => e.id === l.empId), name = emp ? emp.name.split(' ')[0] : 'Staff', w = l.clockIn && !l.clockOut;
@@ -482,59 +594,16 @@ function showKioskConfirmOverlay(empName, dir, timeStr, photoUrl, noteText) {
   if (kioskConfirmTimer) clearTimeout(kioskConfirmTimer); kioskConfirmTimer = setTimeout(() => ov.classList.add('hidden'), 3000);
 }
 
-function getEffectiveShiftForDate(emp, dateStr) {
-  const sched = (emp && dateStr) ? state.schedules[`${dateStr}_${emp.id}`] : null;
-  if (sched) {
-    if (sched.isOff === true) {
-      return {
-        fromSchedule: true,
-        isScheduledOff: true,
-        shiftId: 'OFF',
-        shiftName: t('shiftOffBadge'),
-        shiftStart: emp.shiftStart || '09:00',
-        shiftEnd: emp.shiftEnd || '18:00',
-        breakMinutes: Number(emp.breakMinutes ?? 60),
-        color: 'rose'
-      };
-    }
-    return {
-      fromSchedule: true,
-      isScheduledOff: false,
-      shiftId: sched.shiftId || '',
-      shiftName: sched.shiftName || '',
-      shiftStart: sched.start || emp.shiftStart || '09:00',
-      shiftEnd: sched.end || emp.shiftEnd || '18:00',
-      breakMinutes: Number(sched.breakMinutes ?? emp.breakMinutes ?? 60),
-      color: sched.color || 'amber'
-    };
-  }
-  return {
-    fromSchedule: false,
-    isScheduledOff: false,
-    shiftId: '',
-    shiftName: '',
-    shiftStart: emp?.shiftStart || '09:00',
-    shiftEnd: emp?.shiftEnd || '18:00',
-    breakMinutes: Number(emp?.breakMinutes ?? 60),
-    color: 'stone'
-  };
-}
-
 function isDateHolidayForEmployee(dateStr, emp) {
-  if (!dateStr) return false;
-  if (state.holidays.some(h => h.date === dateStr)) return true;
-  const sched = emp ? state.schedules[`${dateStr}_${emp.id}`] : null;
-  if (sched) return sched.isOff === true;
+  if (!dateStr) return false; if (state.holidays.some(h => h.date === dateStr)) return true;
   const dow = new Date(dateStr + 'T00:00:00').getDay();
   if ((state.settings.weeklyOffDays || []).includes(dow)) return true;
   return !!(emp && typeof emp.weeklyDayOff === 'number' && emp.weeklyDayOff >= 0 && emp.weeklyDayOff === dow);
 }
-
 function analyzeAttendance(log, emp) {
-  if (!emp) return { workedHours: 0, regularHours: 0, otHours: 0, holidayHours: 0, lateMins: 0, isHolidayWork: false, shiftName: '', shiftColor: 'stone', fromSchedule: false };
-  const eff = getEffectiveShiftForDate(emp, log.date);
-  const inM = timeToMinutes(log.clockIn), outM = timeToMinutes(log.clockOut), sStart = timeToMinutes(eff.shiftStart) ?? 540, sEnd = timeToMinutes(eff.shiftEnd) ?? 1080;
-  const brk = Number(eff.breakMinutes ?? 60), grace = Number(state.settings.lateGraceMinutes ?? 10);
+  if (!emp) return { workedHours: 0, regularHours: 0, otHours: 0, holidayHours: 0, lateMins: 0, isHolidayWork: false };
+  const inM = timeToMinutes(log.clockIn), outM = timeToMinutes(log.clockOut), sStart = timeToMinutes(emp.shiftStart) ?? 540, sEnd = timeToMinutes(emp.shiftEnd) ?? 1080;
+  const brk = Number(emp.breakMinutes ?? 60), grace = Number(state.settings.lateGraceMinutes ?? 10);
   const lateMins = (inM !== null && inM > sStart + grace) ? (inM - sStart) : 0, isHolidayWork = isDateHolidayForEmployee(log.date, emp);
   let wM = 0, rM = 0, oM = 0, hM = 0;
   if (inM !== null && outM !== null) {
@@ -542,7 +611,7 @@ function analyzeAttendance(log, emp) {
     let sNet = sEnd - sStart; if (sNet <= 0) sNet += 1440; if (sNet >= 300 && brk > 0) sNet = Math.max(60, sNet - brk);
     if (isHolidayWork) hM = wM; else if (wM > sNet + 15) { rM = sNet; oM = wM - sNet; } else rM = wM;
   }
-  return { workedHours: +(wM / 60).toFixed(2), regularHours: +(rM / 60).toFixed(2), otHours: +(oM / 60).toFixed(2), holidayHours: +(hM / 60).toFixed(2), lateMins, isHolidayWork, shiftName: eff.shiftName, shiftColor: eff.color, fromSchedule: eff.fromSchedule };
+  return { workedHours: +(wM / 60).toFixed(2), regularHours: +(rM / 60).toFixed(2), otHours: +(oM / 60).toFixed(2), holidayHours: +(hM / 60).toFixed(2), lateMins, isHolidayWork };
 }
 
 function getEmployeeLeaveStats(emp, year) {
@@ -810,12 +879,9 @@ function renderLogsTab() {
     let bg = `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800">${escapeHtml(t('badgeNormal'))}</span>`;
     if (!l.clockOut) bg = `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-sky-100 text-sky-800">${escapeHtml(t('badgeWorking'))}</span>`;
     else if (a.lateMins > 0) bg = `<span class="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800">${escapeHtml(t('badgeLate', { m: a.lateMins }))}</span>`;
-    const shiftBadge = (a.fromSchedule && a.shiftName)
-      ? `<span class="inline-block ml-1.5 px-1.5 py-0.5 rounded border text-[10px] font-bold align-middle ${getShiftColorClasses(a.shiftColor)}">${escapeHtml(a.shiftName)}</span>`
-      : '';
     return `<tr class="hover:bg-warm-50/80 transition">
       <td class="py-3 px-4 font-mono text-xs font-bold text-warm-800">${escapeHtml(l.date)}${a.isHolidayWork ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px]">${escapeHtml(t('badgeHoliday'))}</span>` : ''}</td>
-      <td class="py-3 px-4"><div class="font-bold text-warm-900">${escapeHtml(emp ? emp.name : t('deletedEmp'))}${shiftBadge}</div>${l.note ? `<div class="text-[11px] text-stone-400">${escapeHtml(l.note)}</div>` : ''}</td>
+      <td class="py-3 px-4"><div class="font-bold text-warm-900">${escapeHtml(emp ? emp.name : t('deletedEmp'))}</div>${l.note ? `<div class="text-[11px] text-stone-400">${escapeHtml(l.note)}</div>` : ''}</td>
       <td class="py-3 px-4 font-mono text-xs"><span class="text-emerald-700 font-bold">${escapeHtml(l.clockIn || '-')}</span><span class="text-stone-400 mx-1">→</span><span class="text-rose-700 font-bold">${escapeHtml(l.clockOut || t('notClockedOut'))}</span></td>
       <td class="py-3 px-4 text-xs"><span class="font-bold text-warm-900">${a.workedHours}h</span>${a.otHours > 0 ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-amber-100 text-wood-700 font-bold">${escapeHtml(t('tagOt', { h: a.otHours }))}</span>` : ''}${a.holidayHours > 0 ? `<span class="ml-1 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 font-bold">${escapeHtml(t('tagHol', { h: a.holidayHours }))}</span>` : ''}</td>
       <td class="py-3 px-4">${bg}</td>
@@ -823,95 +889,6 @@ function renderLogsTab() {
       <td class="py-3 px-4 text-right space-x-1 whitespace-nowrap"><button type="button" onclick="HR.openLogModal('${l.id}')" class="px-2.5 py-1 rounded-lg border border-warm-300 hover:bg-warm-100 text-xs font-bold text-warm-800">${escapeHtml(t('btnEdit'))}</button><button type="button" onclick="HR.confirmDeleteLog('${l.id}')" class="px-2.5 py-1 rounded-lg border border-rose-200 hover:bg-rose-50 text-xs font-bold text-rose-600">${escapeHtml(t('btnDelete'))}</button></td>
     </tr>`;
   }).join('');
-}
-
-function renderShiftsTab() {
-  const tplListEl = document.getElementById('shift-templates-list');
-  const rangeEl = document.getElementById('shift-week-range-label');
-  const theadEl = document.getElementById('shift-roster-thead');
-  const tbodyEl = document.getElementById('shift-roster-tbody');
-  if (!tplListEl || !theadEl || !tbodyEl) return;
-
-  const templates = getShiftTemplates();
-  tplListEl.innerHTML = templates.length === 0
-    ? `<div class="col-span-full py-6 text-center text-xs text-stone-400">${escapeHtml(t('shiftTplEmpty'))}</div>`
-    : templates.map(tpl => `
-      <div class="rounded-2xl border p-3.5 flex flex-col justify-between gap-2.5 ${getShiftColorClasses(tpl.color)}">
-        <div>
-          <div class="font-extrabold text-sm truncate">${escapeHtml(tpl.name)}</div>
-          <div class="font-mono text-xs font-bold mt-1 opacity-90">${escapeHtml(tpl.start)} ~ ${escapeHtml(tpl.end)}</div>
-          <div class="text-[11px] opacity-75 mt-0.5">${escapeHtml(t('empFBreak'))}: ${Number(tpl.breakMinutes ?? 60)}${escapeHtml(t('unitMin'))}</div>
-        </div>
-        <div class="flex justify-end gap-1.5 pt-2 border-t border-black/10">
-          <button type="button" onclick="HR.openShiftTemplateModal('${tpl.id}')" class="px-2.5 py-1 rounded-lg bg-white/80 hover:bg-white text-warm-900 text-[11px] font-bold border border-black/10 transition">${escapeHtml(t('btnEdit'))}</button>
-          <button type="button" onclick="HR.confirmDeleteShiftTemplate('${tpl.id}')" class="px-2.5 py-1 rounded-lg bg-white/80 hover:bg-rose-50 text-rose-700 text-[11px] font-bold border border-rose-200 transition">${escapeHtml(t('btnDelete'))}</button>
-        </div>
-      </div>`).join('');
-
-  const dates = getWeekDates(shiftWeekStartStr);
-  const today = getTodayStr();
-  const daysShort = t('daysShort');
-  if (rangeEl) rangeEl.textContent = `${dates[0]} ~ ${dates[6]}`;
-
-  theadEl.innerHTML = `<tr class="bg-warm-100 text-warm-800 text-xs border-b border-warm-200">
-    <th class="py-3 px-4 font-extrabold min-w-[140px]">${escapeHtml(t('thEmployee'))}</th>
-    ${dates.map(dateStr => {
-      const dow = new Date(dateStr + 'T00:00:00').getDay();
-      const isToday = dateStr === today;
-      const hol = state.holidays.find(h => h.date === dateStr);
-      const isStoreOff = (state.settings.weeklyOffDays || []).includes(dow);
-      const mmdd = dateStr.slice(5).replace('-', '/');
-      return `<th class="py-2.5 px-2 text-center font-extrabold min-w-[112px] ${isToday ? 'bg-amber-100/90 text-wood-700' : ''}">
-        <div class="font-mono">${mmdd} (${escapeHtml(daysShort[dow])})</div>
-        ${hol ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-bold truncate max-w-[100px]" title="${escapeHtml(hol.name)}">${escapeHtml(t('badgeHoliday'))}</span>` : (isStoreOff ? `<span class="inline-block mt-0.5 px-1.5 py-0.5 rounded bg-stone-200 text-stone-600 text-[10px] font-bold">${escapeHtml(t('dayStatusOff'))}</span>` : '')}
-      </th>`;
-    }).join('')}
-  </tr>`;
-
-  const activeEmps = state.employees.filter(e => e.active !== false);
-  const leaveTypeMap = { ANNUAL: t('leaveTypeAnnual'), SICK: t('leaveTypeSick'), UNPAID: t('leaveTypeUnpaid'), ABSENT: t('leaveTypeAbsent') };
-
-  if (activeEmps.length === 0) {
-    tbodyEl.innerHTML = `<tr><td colspan="8" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('empEmpty'))}</td></tr>`;
-    return;
-  }
-
-  tbodyEl.innerHTML = activeEmps.map(emp => `
-    <tr class="hover:bg-warm-50/50">
-      <td class="py-3 px-4 align-middle">
-        <div class="font-bold text-warm-900 text-xs sm:text-sm">${escapeHtml(emp.name)}</div>
-        <div class="text-[11px] text-stone-500">${escapeHtml(emp.role)}</div>
-        <div class="text-[10px] font-mono text-stone-400 mt-0.5">${escapeHtml(emp.shiftStart || '09:00')}~${escapeHtml(emp.shiftEnd || '18:00')}</div>
-      </td>
-      ${dates.map(dateStr => {
-        const isToday = dateStr === today;
-        const sched = state.schedules[`${dateStr}_${emp.id}`];
-        const lv = state.leaves.find(x => x.empId === emp.id && x.date === dateStr && x.status === 'APPROVED');
-        const lvBadge = lv
-          ? `<div class="mt-1 px-1.5 py-0.5 rounded bg-sky-100 text-sky-800 text-[10px] font-bold truncate">${escapeHtml(leaveTypeMap[lv.type] || lv.type)}</div>`
-          : '';
-        let inner = '';
-        if (sched && sched.isOff) {
-          inner = `<div class="rounded-xl border px-2 py-2 text-center ${getShiftColorClasses('rose')} hover:brightness-95 transition">
-            <div class="text-[11px] font-extrabold">${escapeHtml(t('shiftOffBadge'))}</div>
-            ${lvBadge}
-          </div>`;
-        } else if (sched) {
-          inner = `<div class="rounded-xl border px-2 py-2 text-center ${getShiftColorClasses(sched.color)} hover:brightness-95 transition">
-            <div class="text-[11px] font-extrabold truncate">${escapeHtml(sched.shiftName)}</div>
-            <div class="text-[10px] font-mono font-semibold opacity-90 mt-0.5">${escapeHtml(sched.start)}~${escapeHtml(sched.end)}</div>
-            ${lvBadge}
-          </div>`;
-        } else {
-          inner = `<div class="rounded-xl border border-dashed border-warm-300 bg-warm-50/70 hover:bg-warm-100 px-2 py-2 text-center text-stone-500 transition">
-            <div class="text-[10px] font-bold text-stone-400">${escapeHtml(t('shiftDefaultBadge'))}</div>
-            <div class="text-[10px] font-mono mt-0.5">${escapeHtml(emp.shiftStart || '09:00')}~${escapeHtml(emp.shiftEnd || '18:00')}</div>
-            ${lvBadge}
-          </div>`;
-        }
-        return `<td class="p-1.5 align-middle ${isToday ? 'bg-amber-50/50' : ''}"><button type="button" onclick="HR.openShiftAssignModal('${emp.id}', '${dateStr}')" class="w-full text-left block focus:outline-none">${inner}</button></td>`;
-      }).join('')}
-    </tr>`).join('');
 }
 
 function renderPayrollTab() {
@@ -1052,6 +1029,7 @@ function renderSettingsTab() {
   const kUrl = document.getElementById('setting-kiosk-url'); if (kUrl) kUrl.value = buildRoleUrl('kiosk');
   const aUrl = document.getElementById('setting-admin-url'); if (aUrl) aUrl.value = buildRoleUrl('admin');
   const ft = document.getElementById('setting-firebase-json'); if (ft && document.activeElement !== ft && activeCustomConfigObj && !ft.value) ft.value = JSON.stringify(activeCustomConfigObj, null, 2);
+  updateDeviceKioskPinUI();
   if (window.HR && window.HR.updateCleanupPreview) window.HR.updateCleanupPreview();
 }
 
@@ -1068,9 +1046,53 @@ window.HR = {
     else { previewLanguage = lang; try { window.sessionStorage.setItem(SESSION_LANG_PREVIEW_KEY, lang); } catch (e) {} renderAllActiveViews(); showToast(t('toastLangPreview'), 'info'); }
   },
   setTawiLang(lang) { tawiDocLang = lang === 'thEn' ? 'thEn' : 'th'; if (currentTawiState) render50Tawi(currentTawiState.empId, currentTawiState.year); },
+  async promptPwaInstall(fromKiosk = false) {
+    if (fromKiosk === true) {
+      safeLocalSet(KIOSK_DEFAULT_KEY, '1');
+      updateDeviceKioskPinUI();
+    }
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      try { await deferredInstallPrompt.userChoice; } catch (e) {}
+      deferredInstallPrompt = null;
+      document.getElementById('btn-kiosk-install')?.classList.add('hidden');
+    } else {
+      showToast(t('toastInstallIosHint'), 'info');
+    }
+  },
+  toggleDeviceKioskPin() {
+    const pinned = safeLocalGet(KIOSK_DEFAULT_KEY) === '1';
+    if (pinned) {
+      safeLocalRemove(KIOSK_DEFAULT_KEY);
+      showToast(t('toastKioskUnpinned'), 'info');
+    } else {
+      safeLocalSet(KIOSK_DEFAULT_KEY, '1');
+      showToast(t('toastKioskPinned'), 'success');
+    }
+    updateDeviceKioskPinUI();
+  },
+  async toggleKioskWakeLock() {
+    wakeLockDesired = !wakeLockDesired;
+    safeLocalSet(KIOSK_WAKELOCK_KEY, wakeLockDesired ? '1' : '0');
+    if (wakeLockDesired) {
+      const ok = await acquireWakeLock(false);
+      if (ok) showToast(t('toastWakeOn'), 'success');
+    } else {
+      await releaseWakeLock();
+      showToast(t('toastWakeOff'), 'info');
+    }
+  },
+  toggleKioskFullscreen() {
+    if (document.fullscreenElement) {
+      document.exitFullscreen?.().catch(() => {});
+    } else {
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    }
+  },
   toggleKioskCamera() { kioskVirtualMode = !kioskVirtualMode; if (kioskVirtualMode) stopKioskCamera(); else if (kioskSelectedEmpId) initKioskCamera(); else updateCameraStatusUI(); },
-  selectKioskEmp(empId) { kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView(); if (!kioskVirtualMode) initKioskCamera(); },
+  selectKioskEmp(empId) { kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView(); scheduleKioskIdleReset(); if (!kioskVirtualMode) initKioskCamera(); },
   kioskPinPress(digit) {
+    scheduleKioskIdleReset();
     if (kioskPinBuffer.length >= 4) return;
     kioskPinBuffer += digit; updateKioskPinDots();
     if (kioskPinBuffer.length === 4) {
@@ -1081,9 +1103,10 @@ window.HR = {
       } else document.getElementById('kiosk-pin-hint').textContent = t('kioskPinHintNotFound');
     }
   },
-  kioskPinBackspace() { kioskPinBuffer = kioskPinBuffer.slice(0, -1); updateKioskPinDots(); renderKioskView(); },
+  kioskPinBackspace() { scheduleKioskIdleReset(); kioskPinBuffer = kioskPinBuffer.slice(0, -1); updateKioskPinDots(); renderKioskView(); },
   kioskPinClear(resetSelected = true) { kioskPinBuffer = ''; updateKioskPinDots(); if (resetSelected) { kioskSelectedEmpId = null; stopKioskCamera(); } renderKioskView(); },
   async submitKioskPunch(dir) {
+    scheduleKioskIdleReset();
     if (kioskPinBuffer.length !== 4) { showToast(t('toastPinIncomplete'), 'warning'); return; }
     const emp = state.employees.filter(e => e.active !== false).find(e => e.pin === kioskPinBuffer);
     if (!emp) { showToast(t('toastPinWrong'), 'error'); this.kioskPinClear(false); return; }
@@ -1093,8 +1116,7 @@ window.HR = {
       if (existing && existing.clockIn) { showToast(t('toastAlreadyIn', { name: emp.name, time: existing.clockIn }), 'warning'); this.kioskPinClear(true); return; }
       if (!kioskVirtualMode && !kioskStream) await initKioskCamera();
       const inPhoto = captureCompressedSelfie(emp.name, t('selfieLabelIn')); stopKioskCamera();
-      const eff = getEffectiveShiftForDate(emp, today);
-      const inM = timeToMinutes(nowTime), sStart = timeToMinutes(eff.shiftStart) ?? 540, grace = Number(state.settings.lateGraceMinutes ?? 10), lateMinutes = (inM !== null && inM > sStart + grace) ? (inM - sStart) : 0;
+      const inM = timeToMinutes(nowTime), sStart = timeToMinutes(emp.shiftStart) ?? 540, grace = Number(state.settings.lateGraceMinutes ?? 10), lateMinutes = (inM !== null && inM > sStart + grace) ? (inM - sStart) : 0;
       const newLog = { id: `att_${nowTs}_${emp.id}`, empId: emp.id, date: today, clockIn: nowTime, clockOut: '', clockInTs: nowTs, clockOutTs: null, lateMinutes, inPhoto, outPhoto: '', note: '' };
       await persistDoc('attendance', newLog.id, newLog);
       showKioskConfirmOverlay(emp.name, 'IN', nowTime, inPhoto, lateMinutes > 0 ? t('kioskInLateNote', { m: lateMinutes }) : t('kioskInOkNote'));
@@ -1131,130 +1153,6 @@ window.HR = {
   onLogMonthChange() { document.getElementById('filter-log-date').value = ''; renderLogsTab(); },
   renderLogsTab() { renderLogsTab(); },
   renderLeavesTab() { renderLeavesTab(); },
-  openShiftTemplateModal(tplId = null) {
-    const templates = getShiftTemplates();
-    if (tplId) {
-      const tpl = templates.find(x => x.id === tplId); if (!tpl) return;
-      document.getElementById('modal-shift-tpl-title').textContent = t('shiftTplModalEdit');
-      document.getElementById('tpl-f-id').value = tpl.id;
-      document.getElementById('tpl-f-name').value = tpl.name || '';
-      document.getElementById('tpl-f-start').value = tpl.start || '08:00';
-      document.getElementById('tpl-f-end').value = tpl.end || '17:00';
-      document.getElementById('tpl-f-break').value = tpl.breakMinutes ?? 60;
-      document.getElementById('tpl-f-color').value = tpl.color || 'amber';
-    } else {
-      document.getElementById('modal-shift-tpl-title').textContent = t('shiftTplModalAdd');
-      document.getElementById('tpl-f-id').value = '';
-      document.getElementById('tpl-f-name').value = '';
-      document.getElementById('tpl-f-start').value = '08:00';
-      document.getElementById('tpl-f-end').value = '17:00';
-      document.getElementById('tpl-f-break').value = 60;
-      document.getElementById('tpl-f-color').value = 'amber';
-    }
-    document.getElementById('modal-shift-template').classList.remove('hidden');
-  },
-  async saveShiftTemplate(e) {
-    e.preventDefault();
-    const id = document.getElementById('tpl-f-id').value;
-    const name = document.getElementById('tpl-f-name').value.trim();
-    const start = document.getElementById('tpl-f-start').value;
-    const end = document.getElementById('tpl-f-end').value;
-    const breakMinutes = parseInt(document.getElementById('tpl-f-break').value, 10) || 0;
-    const color = document.getElementById('tpl-f-color').value || 'amber';
-    const cur = [...getShiftTemplates()];
-    const tplObj = { id: id || `tpl_${Date.now()}`, name, start, end, breakMinutes, color };
-    const idx = cur.findIndex(x => x.id === tplObj.id);
-    if (idx !== -1) cur[idx] = tplObj;
-    else cur.push(tplObj);
-    await persistSettings({ shiftTemplates: cur });
-    this.closeModal('modal-shift-template');
-    showToast(t('toastShiftTplSaved'), 'success');
-  },
-  confirmDeleteShiftTemplate(tplId) {
-    const cur = getShiftTemplates();
-    const tpl = cur.find(x => x.id === tplId);
-    if (!tpl) return;
-    this.openConfirm(t('confirmDelShiftTplTitle'), t('confirmDelShiftTplMsg', { name: tpl.name }), async () => {
-      const nextList = getShiftTemplates().filter(x => x.id !== tplId);
-      await persistSettings({ shiftTemplates: nextList });
-      showToast(t('toastShiftTplDeleted'));
-    });
-  },
-  shiftWeekOffset(delta) {
-    if (delta === 0) shiftWeekStartStr = getMondayOfWeek(getTodayStr());
-    else shiftWeekStartStr = addDaysStr(shiftWeekStartStr, delta * 7);
-    renderShiftsTab();
-  },
-  openShiftAssignModal(empId, dateStr) {
-    const emp = state.employees.find(e => e.id === empId); if (!emp) return;
-    const curSched = state.schedules[`${dateStr}_${empId}`] || null;
-    document.getElementById('modal-shift-assign-title').textContent = t('shiftAssignModalTitle', { name: emp.name, date: dateStr });
-    const templates = getShiftTemplates();
-    const tplButtons = templates.map(tpl => {
-      const isActive = curSched && !curSched.isOff && curSched.shiftId === tpl.id;
-      return `<button type="button" onclick="HR.assignShiftCell('${empId}', '${dateStr}', 'TPL', '${tpl.id}')" class="w-full px-4 py-3 rounded-2xl border text-left flex items-center justify-between gap-2 transition hover:brightness-95 ${getShiftColorClasses(tpl.color)} ${isActive ? 'ring-2 ring-wood-600' : ''}">
-        <div>
-          <div class="font-extrabold text-sm">${escapeHtml(tpl.name)}</div>
-          <div class="text-xs font-mono font-semibold opacity-80">${escapeHtml(tpl.start)} ~ ${escapeHtml(tpl.end)} (${Number(tpl.breakMinutes ?? 60)}${escapeHtml(t('unitMin'))})</div>
-        </div>
-        ${isActive ? '<span class="text-xs font-extrabold">✓</span>' : ''}
-      </button>`;
-    }).join('');
-    const isOffActive = curSched && curSched.isOff === true;
-    const isDefaultActive = !curSched;
-    document.getElementById('shift-assign-options').innerHTML = `
-      ${tplButtons}
-      <button type="button" onclick="HR.assignShiftCell('${empId}', '${dateStr}', 'OFF')" class="w-full px-4 py-3 rounded-2xl border text-left flex items-center justify-between gap-2 transition hover:brightness-95 ${getShiftColorClasses('rose')} ${isOffActive ? 'ring-2 ring-rose-600' : ''}">
-        <span class="font-extrabold text-sm">${escapeHtml(t('shiftSetOff'))}</span>
-        ${isOffActive ? '<span class="text-xs font-extrabold">✓</span>' : ''}
-      </button>
-      <button type="button" onclick="HR.assignShiftCell('${empId}', '${dateStr}', 'CLEAR')" class="w-full px-4 py-3 rounded-2xl border border-dashed border-warm-300 bg-warm-50 hover:bg-warm-100 text-warm-900 text-left flex items-center justify-between gap-2 transition ${isDefaultActive ? 'ring-2 ring-stone-400' : ''}">
-        <div>
-          <div class="font-bold text-xs">${escapeHtml(t('shiftResetDefault'))}</div>
-          <div class="text-[11px] font-mono text-stone-500 mt-0.5">${escapeHtml(emp.shiftStart || '09:00')} ~ ${escapeHtml(emp.shiftEnd || '18:00')} (${Number(emp.breakMinutes ?? 60)}${escapeHtml(t('unitMin'))})</div>
-        </div>
-        ${isDefaultActive ? '<span class="text-xs font-extrabold text-stone-500">✓</span>' : ''}
-      </button>`;
-    document.getElementById('modal-shift-assign').classList.remove('hidden');
-  },
-  async assignShiftCell(empId, dateStr, mode, tplId = null) {
-    const docId = `${dateStr}_${empId}`;
-    if (mode === 'CLEAR') {
-      await removeDoc('schedules', docId);
-      showToast(t('toastShiftCleared'), 'info');
-    } else if (mode === 'OFF') {
-      await persistDoc('schedules', docId, { id: docId, date: dateStr, empId, shiftId: 'OFF', shiftName: 'OFF', start: '', end: '', breakMinutes: 0, color: 'rose', isOff: true });
-      showToast(t('toastShiftAssigned'), 'success');
-    } else if (mode === 'TPL') {
-      const tpl = getShiftTemplates().find(x => x.id === tplId);
-      if (tpl) {
-        await persistDoc('schedules', docId, { id: docId, date: dateStr, empId, shiftId: tpl.id, shiftName: tpl.name, start: tpl.start, end: tpl.end, breakMinutes: Number(tpl.breakMinutes ?? 60), color: tpl.color || 'amber', isOff: false });
-        showToast(t('toastShiftAssigned'), 'success');
-      }
-    }
-    this.closeModal('modal-shift-assign');
-  },
-  confirmCopyPrevWeek() {
-    const curDates = getWeekDates(shiftWeekStartStr);
-    const activeEmpIds = new Set(state.employees.filter(e => e.active !== false).map(e => e.id));
-    const items = [];
-    curDates.forEach(targetDate => {
-      const prevDate = addDaysStr(targetDate, -7);
-      activeEmpIds.forEach(empId => {
-        const prevSched = state.schedules[`${prevDate}_${empId}`];
-        if (prevSched) items.push({ targetDate, sched: prevSched });
-      });
-    });
-    if (items.length === 0) { showToast(t('toastCopyWeekEmpty'), 'warning'); return; }
-    const range = `${curDates[0]} ~ ${curDates[6]}`;
-    this.openConfirm(t('confirmCopyWeekTitle'), t('confirmCopyWeekMsg', { count: items.length, range }), async () => {
-      for (const it of items) {
-        const docId = `${it.targetDate}_${it.sched.empId}`;
-        await persistDoc('schedules', docId, { ...it.sched, id: docId, date: it.targetDate });
-      }
-      showToast(t('toastCopyWeekDone', { count: items.length }), 'success');
-    });
-  },
   openSelfieModal(logId) {
     const l = state.attendance.find(x => x.id === logId); if (!l) return; const emp = state.employees.find(e => e.id === l.empId);
     document.getElementById('modal-selfie-title').textContent = t('selfieModalTitle', { name: emp ? emp.name : t('thEmployee'), date: l.date });
@@ -1277,9 +1175,7 @@ window.HR = {
   async saveAttendanceLog(e) {
     e.preventDefault();
     const id = document.getElementById('log-f-id').value, empId = document.getElementById('log-f-emp').value, date = document.getElementById('log-f-date').value, clockIn = document.getElementById('log-f-in').value, clockOut = document.getElementById('log-f-out').value, note = document.getElementById('log-f-note').value.trim();
-    const emp = state.employees.find(x => x.id === empId), ex = id ? state.attendance.find(l => l.id === id) : null;
-    const eff = emp ? getEffectiveShiftForDate(emp, date) : null;
-    const inM = timeToMinutes(clockIn), sStart = eff ? (timeToMinutes(eff.shiftStart) ?? 540) : 540, grace = Number(state.settings.lateGraceMinutes ?? 10);
+    const emp = state.employees.find(x => x.id === empId), ex = id ? state.attendance.find(l => l.id === id) : null, inM = timeToMinutes(clockIn), sStart = emp ? (timeToMinutes(emp.shiftStart) ?? 540) : 540, grace = Number(state.settings.lateGraceMinutes ?? 10);
     const lateMinutes = (inM !== null && inM > sStart + grace) ? (inM - sStart) : 0, docId = id || `att_${Date.now()}_${empId}`;
     await persistDoc('attendance', docId, { id: docId, empId, date, clockIn, clockOut, clockInTs: ex?.clockInTs || Date.now(), clockOutTs: clockOut ? (ex?.clockOutTs || Date.now()) : null, lateMinutes, inPhoto: ex?.inPhoto || generateVirtualSelfieJpeg(emp ? emp.name : 'Staff', t('selfieManualIn'), `${date} ${clockIn}`, '#334155'), outPhoto: ex?.outPhoto || (clockOut ? generateVirtualSelfieJpeg(emp ? emp.name : 'Staff', t('selfieManualOut'), `${date} ${clockOut}`, '#475569') : ''), note });
     this.closeModal('modal-log'); showToast(id ? t('toastLogUpdated') : t('toastLogSaved'), 'success');
@@ -1430,22 +1326,7 @@ window.HR = {
   async setLeaveStatus(id, st) { const tg = state.leaves.find(x => x.id === id); if (!tg) return; await persistDoc('leaves', id, { ...tg, status: st }); showToast(st === 'APPROVED' ? t('toastLeaveApproved') : t('toastLeaveRejected'), 'success'); },
   async deleteLeave(id) { await removeDoc('leaves', id); showToast(t('toastLeaveDeleted')); },
   updateEmpRateLabel() { document.getElementById('emp-f-rate-label').textContent = document.getElementById('emp-f-paytype').value === 'MONTHLY' ? t('empFRateMonthly') : t('empFRateHourly'); },
-  applyShiftPresetToEmpForm() {
-    const tplId = document.getElementById('emp-f-shift-preset')?.value;
-    if (!tplId) return;
-    const tpl = getShiftTemplates().find(x => x.id === tplId);
-    if (!tpl) return;
-    document.getElementById('emp-f-start').value = tpl.start || '09:00';
-    document.getElementById('emp-f-end').value = tpl.end || '18:00';
-    document.getElementById('emp-f-break').value = tpl.breakMinutes ?? 60;
-  },
   openEmployeeModal(empId = null) {
-    const presetEl = document.getElementById('emp-f-shift-preset');
-    if (presetEl) {
-      presetEl.innerHTML = `<option value="">${escapeHtml(t('empFShiftPresetPh'))}</option>` +
-        getShiftTemplates().map(tpl => `<option value="${tpl.id}">${escapeHtml(tpl.name)} (${escapeHtml(tpl.start)}~${escapeHtml(tpl.end)}, ${Number(tpl.breakMinutes ?? 60)}${escapeHtml(t('unitMin'))})</option>`).join('');
-      presetEl.value = '';
-    }
     if (empId) {
       const emp = state.employees.find(e => e.id === empId); if (!emp) return;
       document.getElementById('modal-emp-title').textContent = t('empModalEditTitle');
@@ -1508,7 +1389,7 @@ window.HR = {
     });
   },
   exportFullBackupJSON() {
-    const backupObj = { version: 3, exportedAt: new Date().toISOString(), appId: activeAppId, data: { settings: state.settings, employees: state.employees, attendance: state.attendance, leaves: state.leaves, holidays: state.holidays, adjustments: state.adjustments, closures: state.closures, schedules: state.schedules } };
+    const backupObj = { version: 3, exportedAt: new Date().toISOString(), appId: activeAppId, data: { settings: state.settings, employees: state.employees, attendance: state.attendance, leaves: state.leaves, holidays: state.holidays, adjustments: state.adjustments, closures: state.closures } };
     const blob = new Blob([JSON.stringify(backupObj, null, 2)], { type: 'application/json;charset=utf-8;' }), url = URL.createObjectURL(blob), a = document.createElement('a');
     a.href = url; a.download = `hr_backup_${getTodayStr()}.json`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     showToast(t('toastBackupExported'), 'success');
@@ -1531,7 +1412,6 @@ window.HR = {
           for (const x of (d.holidays || [])) { if (x?.id) await persistDoc('holidays', x.id, x); }
           for (const [k, v] of Object.entries(d.adjustments || {})) { if (v) await persistDoc('payroll_adjustments', v.id || k, { ...v, id: v.id || k }); }
           for (const [k, v] of Object.entries(d.closures || {})) { if (v) await persistDoc('payroll_closures', v.id || k, { ...v, id: v.id || k }); }
-          for (const [k, v] of Object.entries(d.schedules || {})) { if (v) await persistDoc('schedules', v.id || k, { ...v, id: v.id || k }); }
           showToast(t('toastRestoreDone'), 'success'); renderAllActiveViews();
         });
       } catch (err) { showToast(t('toastRestoreInvalid'), 'error'); }
@@ -1562,6 +1442,9 @@ window.HR = {
 };
 
 async function bootApp() {
+  registerServiceWorker();
+  initPwaAndKioskGuards();
+  updateOfflineBanner();
   try { await initDataLayer(); } catch (e) { console.error(e); }
   finally { document.getElementById('app-loader')?.classList.add('hidden'); applyRouteUI(); }
 }
