@@ -622,8 +622,8 @@ function showKioskConfirmOverlay(empName, dir, timeStr, photoUrl, noteText) {
   document.getElementById('kiosk-confirm-name').textContent = empName; document.getElementById('kiosk-confirm-time').textContent = `${getTodayStr()} ${timeStr}`;
   document.getElementById('kiosk-confirm-photo').src = photoUrl; document.getElementById('kiosk-confirm-note').textContent = noteText;
   ov.classList.remove('hidden'); bar.style.transition = 'none'; bar.style.width = '100%';
-  requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.transition = 'width 3000ms linear'; bar.style.width = '0%'; }));
-  if (kioskConfirmTimer) clearTimeout(kioskConfirmTimer); kioskConfirmTimer = setTimeout(() => ov.classList.add('hidden'), 3000);
+  requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.transition = 'width 1500ms linear'; bar.style.width = '0%'; }));
+  if (kioskConfirmTimer) clearTimeout(kioskConfirmTimer); kioskConfirmTimer = setTimeout(() => ov.classList.add('hidden'), 1500);
 }
 
 function getEffectiveShiftForDate(emp, dateStr) {
