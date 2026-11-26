@@ -9,6 +9,8 @@ const LOCAL_DATA_KEY = 'store_hr_payroll_local_data_v2';
 const LOCAL_FB_CFG_KEY = 'store_hr_custom_fb_cfg_v2';
 const ADMIN_AUTH_SESSION_KEY = 'store_hr_admin_unlocked_v2';
 const SESSION_LANG_PREVIEW_KEY = 'store_hr_lang_preview_v2';
+const KIOSK_DEFAULT_KEY = 'hr_kiosk_default';
+const KIOSK_WAKELOCK_KEY = 'hr_kiosk_wakelock';
 
 const DEFAULT_SHIFT_TEMPLATES = [
   { id: 'tpl_open', name: '오픈조 (Open)', start: '07:00', end: '16:00', breakMinutes: 60, color: 'amber' },
@@ -32,6 +34,9 @@ const DEFAULT_SETTINGS = {
   ssoRateThb: 5,
   ssoCapThb: 875,
   standardWorkDays: 26,
+  attendanceBonusEnabled: false,
+  attendanceBonusAmount: 1000,
+  prorataEnabled: true,
   weeklyOffDays: [0],
   shiftTemplates: DEFAULT_SHIFT_TEMPLATES,
   seeded: false
@@ -41,7 +46,8 @@ let db = null, auth = null, currentUser = null;
 let activeAppId = 'store-hr-prod', syncMode = 'local', activeCustomConfigObj = null, unsubscribers = [];
 let routeMode = 'admin', isAdminUnlocked = false, activeAdminTab = 'logs', previewLanguage = null;
 let kioskSelectedEmpId = null, kioskPinBuffer = '', kioskStream = null, kioskVirtualMode = false, kioskConfirmTimer = null, camSessionToken = 0;
-let tawiDocLang = 'th', currentTawiState = null, pendingConfirmAction = null;
+let tawiDocLang = 'th', currentTawiState = null, currentPayslipCtx = null, pendingConfirmAction = null;
+let deferredInstallPrompt = null, wakeLockSentinel = null, wakeLockDesired = true, kioskIdleTimer = null;
 let shiftWeekStartStr = getMondayOfWeek(getTodayStr());
 let state = { settings: { ...DEFAULT_SETTINGS }, employees: [], attendance: [], leaves: [], holidays: [], adjustments: {}, closures: {}, schedules: {} };
 
@@ -49,18 +55,24 @@ function getLang() {
   const c = previewLanguage || state.settings.language || 'ko';
   return I18N[c] ? c : 'ko';
 }
-function t(key, params = {}) {
-  const lang = getLang();
-  let val = (I18N[lang] && I18N[lang][key] !== undefined) ? I18N[lang][key] : (I18N.ko ? I18N.ko[key] : undefined);
+function tFor(lang, key, params = {}) {
+  const useLang = I18N[lang] ? lang : 'ko';
+  let val = (I18N[useLang] && I18N[useLang][key] !== undefined) ? I18N[useLang][key] : (I18N.ko ? I18N.ko[key] : undefined);
   if (val === undefined) return key;
   if (typeof val === 'string') {
     Object.keys(params).forEach(k => { val = val.replaceAll(`{${k}}`, String(params[k] ?? '')); });
   }
   return val;
 }
-function getDisplayStoreName() {
+function t(key, params = {}) {
+  return tFor(getLang(), key, params);
+}
+function getDisplayStoreNameFor(lang) {
   const s = state.settings.storeName;
-  return (!s || s === '매장 인사·급여 관리') ? t('defaultStoreName') : s;
+  return (!s || s === '매장 인사·급여 관리') ? tFor(lang, 'defaultStoreName') : s;
+}
+function getDisplayStoreName() {
+  return getDisplayStoreNameFor(getLang());
 }
 function applyStaticI18n() {
   const lang = getLang();
@@ -80,6 +92,9 @@ function applyStaticI18n() {
     });
   });
   updateKioskClockOnce();
+  updateWakeLockUI();
+  updateFullscreenUI();
+  updateDeviceKioskPinUI();
 }
 
 function getTodayStr() {
@@ -105,6 +120,11 @@ function getWeekDates(mondayStr) {
   const arr = [];
   for (let i = 0; i < 7; i++) arr.push(addDaysStr(mondayStr, i));
   return arr;
+}
+function getDaysInMonth(ym) {
+  const [y, m] = String(ym || getCurrentMonthStr()).split('-').map(Number);
+  if (!y || !m) return 30;
+  return new Date(y, m, 0).getDate();
 }
 function getCurrentMonthStr() { return getTodayStr().slice(0, 7); }
 function getNowTimeStr() {
@@ -170,6 +190,122 @@ function decodeCfgParam(enc) {
 function safeLocalGet(k) { try { return window.localStorage.getItem(k); } catch (e) { return null; } }
 function safeLocalSet(k, v) { try { window.localStorage.setItem(k, v); } catch (e) {} }
 function safeLocalRemove(k) { try { window.localStorage.removeItem(k); } catch (e) {} }
+
+function isStandaloneMode() {
+  return window.matchMedia?.('(display-mode: standalone)')?.matches || window.navigator.standalone === true;
+}
+function updateOfflineBanner() {
+  const el = document.getElementById('kiosk-offline-banner');
+  if (el) el.classList.toggle('hidden', navigator.onLine !== false);
+}
+function updatePwaInstallUI() {
+  const kBtn = document.getElementById('btn-kiosk-install');
+  const standalone = isStandaloneMode();
+  if (kBtn) kBtn.classList.toggle('hidden', standalone || !deferredInstallPrompt);
+  updateFullscreenUI();
+}
+function updateFullscreenUI() {
+  const btn = document.getElementById('btn-kiosk-fullscreen');
+  if (!btn) return;
+  if (isStandaloneMode()) { btn.classList.add('hidden'); return; }
+  btn.classList.remove('hidden');
+  btn.textContent = document.fullscreenElement ? t('kioskFullscreenOff') : t('kioskFullscreenOn');
+}
+function updateDeviceKioskPinUI() {
+  const btn = document.getElementById('btn-toggle-pin-kiosk');
+  if (!btn) return;
+  const pinned = safeLocalGet(KIOSK_DEFAULT_KEY) === '1';
+  btn.textContent = pinned ? t('btnUnpinKioskDevice') : t('btnPinKioskDevice');
+  btn.className = pinned
+    ? 'px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition'
+    : 'px-3.5 py-2 rounded-xl border border-warm-300 bg-warm-50 hover:bg-warm-100 text-warm-900 text-xs font-bold transition';
+}
+function updateWakeLockUI() {
+  const btn = document.getElementById('btn-kiosk-wakelock');
+  const dot = document.getElementById('wakelock-dot');
+  const lbl = document.getElementById('wakelock-label');
+  if (!btn || !dot || !lbl) return;
+  const active = wakeLockSentinel !== null;
+  btn.className = active
+    ? 'px-2.5 py-1.5 rounded-xl border border-emerald-200 bg-emerald-50 text-[11px] font-bold text-emerald-800 hover:bg-emerald-100 transition flex items-center gap-1.5'
+    : 'px-2.5 py-1.5 rounded-xl border border-warm-200 bg-white text-[11px] font-bold text-stone-600 hover:bg-warm-50 transition flex items-center gap-1.5';
+  dot.className = active ? 'w-2 h-2 rounded-full bg-emerald-500 animate-pulse' : 'w-2 h-2 rounded-full bg-stone-400';
+  lbl.textContent = active ? t('kioskWakeOn') : t('kioskWakeOff');
+}
+async function acquireWakeLock(silent = false) {
+  if (!('wakeLock' in navigator) || !navigator.wakeLock?.request) {
+    if (!silent) showToast(t('toastWakeUnsupported'), 'warning');
+    updateWakeLockUI();
+    return false;
+  }
+  if (wakeLockSentinel) { updateWakeLockUI(); return true; }
+  try {
+    const sentinel = await navigator.wakeLock.request('screen');
+    wakeLockSentinel = sentinel;
+    sentinel.addEventListener('release', () => {
+      if (wakeLockSentinel === sentinel) wakeLockSentinel = null;
+      updateWakeLockUI();
+    });
+    updateWakeLockUI();
+    return true;
+  } catch (err) {
+    if (!silent) showToast(t('toastWakeUnsupported'), 'warning');
+    updateWakeLockUI();
+    return false;
+  }
+}
+async function releaseWakeLock() {
+  if (wakeLockSentinel) {
+    const s = wakeLockSentinel;
+    wakeLockSentinel = null;
+    try { await s.release(); } catch (e) {}
+  }
+  updateWakeLockUI();
+}
+function clearKioskIdleTimer() {
+  if (kioskIdleTimer) { clearTimeout(kioskIdleTimer); kioskIdleTimer = null; }
+}
+function scheduleKioskIdleReset() {
+  clearKioskIdleTimer();
+  if (routeMode !== 'kiosk') return;
+  kioskIdleTimer = setTimeout(() => {
+    if (routeMode === 'kiosk' && (kioskSelectedEmpId || kioskPinBuffer.length > 0 || kioskStream)) {
+      window.HR.kioskPinClear(true);
+    }
+  }, 30000);
+}
+function initPwaAndKioskHardware() {
+  wakeLockDesired = safeLocalGet(KIOSK_WAKELOCK_KEY) !== '0';
+  window.addEventListener('beforeinstallprompt', e => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    updatePwaInstallUI();
+  });
+  window.addEventListener('appinstalled', () => {
+    deferredInstallPrompt = null;
+    updatePwaInstallUI();
+  });
+  window.addEventListener('online', updateOfflineBanner);
+  window.addEventListener('offline', updateOfflineBanner);
+  document.addEventListener('fullscreenchange', updateFullscreenUI);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && routeMode === 'kiosk' && wakeLockDesired) {
+      acquireWakeLock(true);
+    }
+  });
+  const kioskEl = document.getElementById('kiosk-app');
+  if (kioskEl) {
+    const onKioskActivity = () => {
+      if (routeMode !== 'kiosk') return;
+      scheduleKioskIdleReset();
+      if (wakeLockDesired && !wakeLockSentinel) acquireWakeLock(true);
+    };
+    ['pointerdown', 'click', 'keydown'].forEach(ev => kioskEl.addEventListener(ev, onKioskActivity, { passive: true }));
+  }
+  updateOfflineBanner();
+  updatePwaInstallUI();
+  updateWakeLockUI();
+}
 
 function resolveFirebaseSource() {
   const params = new URLSearchParams(window.location.search);
@@ -322,9 +458,9 @@ function generateVirtualSelfieJpeg(name, label, time, bg = '#231F20') {
 async function seedInitialSampleData() {
   const today = getTodayStr(), ym = getCurrentMonthStr(), nowTs = Date.now();
   const emps = [
-    { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, active: true, idNumber: '1-5799-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn (KBank)', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
-    { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, active: true, idNumber: '1-5799-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
-    { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, annualLeaveQuota: 6, ssoEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Krungthai', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
+    { id: 'sample_emp_1', name: '민지 (Minji)', role: 'Manager', pin: '1111', payType: 'MONTHLY', baseRate: 22000, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, attendanceBonusEligible: true, active: true, idNumber: '1-5799-00123-45-6', phone: '081-234-5678', bankName: 'Kasikorn (KBank)', bankAccount: '012-3-45678-9', hireDate: `${ym.slice(0, 4)}-01-10`, resignDate: '', isSample: true, createdAt: nowTs - 3000 },
+    { id: 'sample_emp_2', name: '솜차이 (Somchai)', role: 'Barista', pin: '2222', payType: 'MONTHLY', baseRate: 16500, shiftStart: '09:00', shiftEnd: '18:00', breakMinutes: 60, weeklyDayOff: 0, annualLeaveQuota: 6, ssoEligible: true, attendanceBonusEligible: true, active: true, idNumber: '1-5799-00456-78-9', phone: '089-876-5432', bankName: 'SCB', bankAccount: '405-6-78901-2', hireDate: `${ym.slice(0, 4)}-03-15`, resignDate: '', isSample: true, createdAt: nowTs - 2000 },
+    { id: 'sample_emp_3', name: '똔 (Ton)', role: 'Part-time', pin: '3333', payType: 'HOURLY', baseRate: 85, shiftStart: '11:00', shiftEnd: '17:00', breakMinutes: 30, weeklyDayOff: -1, annualLeaveQuota: 6, ssoEligible: false, attendanceBonusEligible: false, active: true, idNumber: '', phone: '086-111-2222', bankName: 'Krungthai', bankAccount: '111-2-33344-5', hireDate: `${ym.slice(0, 4)}-06-01`, resignDate: '', isSample: true, createdAt: nowTs - 1000 }
   ];
   const logs = [
     { id: 'sample_att_1', empId: 'sample_emp_1', date: today, clockIn: '08:54', clockOut: '', clockInTs: nowTs - 7200000, clockOutTs: null, lateMinutes: 0, inPhoto: generateVirtualSelfieJpeg('민지 (Minji)', 'IN · Clock In', `${today} 08:54`, '#1E293B'), outPhoto: '', note: 'Sample', isSample: true },
@@ -342,7 +478,13 @@ async function seedInitialSampleData() {
   await persistDoc('holidays', 'sample_hol_1', { id: 'sample_hol_1', date: `${ym}-15`, name: 'Chiang Rai Store Holiday (Sample)', isSample: true });
 }
 
-function detectRouteMode() { return (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase() === 'kiosk' ? 'kiosk' : 'admin'; }
+function detectRouteMode() {
+  const modeParam = (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase();
+  if (modeParam === 'admin') return 'admin';
+  if (modeParam === 'kiosk') return 'kiosk';
+  if (safeLocalGet(KIOSK_DEFAULT_KEY) === '1') return 'kiosk';
+  return 'admin';
+}
 function buildRoleUrl(mode) {
   const u = new URL(window.location.href); u.searchParams.set('mode', mode);
   if (activeCustomConfigObj && !CUSTOM_FIREBASE_CONFIG) { const e = encodeCfgParam(activeCustomConfigObj); if (e) u.searchParams.set('cfg', e); } else u.searchParams.delete('cfg');
@@ -362,9 +504,11 @@ function applyRouteUI() {
   ['kiosk-app', 'admin-login-screen', 'admin-app'].forEach(id => document.getElementById(id)?.classList.add('hidden'));
   if (routeMode === 'kiosk') {
     document.getElementById('kiosk-app')?.classList.remove('hidden');
-    startKioskClock(); stopKioskCamera(); renderAllActiveViews();
+    startKioskClock(); stopKioskCamera(); updateOfflineBanner(); updatePwaInstallUI(); updateFullscreenUI();
+    if (wakeLockDesired) acquireWakeLock(true); else updateWakeLockUI();
+    renderAllActiveViews();
   } else {
-    stopKioskCamera();
+    stopKioskCamera(); releaseWakeLock(); clearKioskIdleTimer();
     try { isAdminUnlocked = window.sessionStorage.getItem(ADMIN_AUTH_SESSION_KEY) === 'true'; } catch (e) {}
     document.getElementById(isAdminUnlocked ? 'admin-app' : 'admin-login-screen')?.classList.remove('hidden');
     renderAllActiveViews();
@@ -567,21 +711,58 @@ function calculateMonthlyPayroll(emp, targetMonth) {
   const logs = state.attendance.filter(l => l.empId === emp.id && (l.date || '').startsWith(targetMonth));
   let tw = 0, tr = 0, to = 0, th = 0, tl = 0;
   logs.forEach(l => { const a = analyzeAttendance(l, emp); tw += a.workedHours; tr += a.regularHours; to += a.otHours; th += a.holidayHours; tl += a.lateMins; });
-  const unpaidDays = state.leaves.filter(lv => lv.empId === emp.id && (lv.date || '').startsWith(targetMonth) && lv.status === 'APPROVED' && lv.isPaid === false).length;
+  const approvedLeaves = state.leaves.filter(lv => lv.empId === emp.id && (lv.date || '').startsWith(targetMonth) && lv.status === 'APPROVED');
+  const unpaidDays = approvedLeaves.filter(lv => lv.isPaid === false).length;
+  const sickLeaveDays = approvedLeaves.filter(lv => lv.type === 'SICK').length;
   const stdDays = Number(state.settings.standardWorkDays || 26), otMult = Number(state.settings.otMultiplier || 1.5), holMult = Number(state.settings.holidayOtMultiplier || 2.0);
-  let basePay = 0, hrEq = 0;
-  if (emp.payType === 'MONTHLY') { basePay = Number(emp.baseRate) || 0; hrEq = basePay / (stdDays * 8); }
-  else { hrEq = Number(emp.baseRate) || 0; basePay = Math.round(tr * hrEq); }
+  const daysInMonth = getDaysInMonth(targetMonth);
+  const monthStart = `${targetMonth}-01`, monthEnd = `${targetMonth}-${String(daysInMonth).padStart(2, '0')}`;
+  let fullBasePay = 0, basePay = 0, hrEq = 0, dailyRate = 0;
+  let isProrated = false, isNotEmployed = false, prorataEmployedDays = daysInMonth, prorataTotalDays = daysInMonth;
+
+  if (emp.payType === 'MONTHLY') {
+    fullBasePay = Number(emp.baseRate) || 0;
+    hrEq = fullBasePay / (stdDays * 8);
+    dailyRate = fullBasePay / stdDays;
+    basePay = fullBasePay;
+    if (state.settings.prorataEnabled !== false && (emp.hireDate || emp.resignDate)) {
+      const effStart = (emp.hireDate && emp.hireDate > monthStart) ? emp.hireDate : monthStart;
+      const effEnd = (emp.resignDate && emp.resignDate < monthEnd) ? emp.resignDate : monthEnd;
+      if (effStart > effEnd) {
+        isNotEmployed = true;
+        prorataEmployedDays = 0;
+        basePay = 0;
+      } else {
+        const d1 = new Date(effStart + 'T00:00:00'), d2 = new Date(effEnd + 'T00:00:00');
+        prorataEmployedDays = Math.round((d2 - d1) / 86400000) + 1;
+        if (prorataEmployedDays < daysInMonth) {
+          isProrated = true;
+          basePay = Math.round(fullBasePay * (prorataEmployedDays / daysInMonth));
+        }
+      }
+    }
+  } else {
+    hrEq = Number(emp.baseRate) || 0;
+    basePay = Math.round(tr * hrEq);
+    fullBasePay = basePay;
+  }
+
   const otPay = Math.round(to * hrEq * otMult), holidayPay = Math.round(th * hrEq * holMult);
   const lateDeduction = state.settings.lateDeductionEnabled ? Math.round((tl / 60) * hrEq) : 0;
-  const unpaidDeduction = emp.payType === 'MONTHLY' ? Math.round(unpaidDays * (basePay / stdDays)) : 0;
+  const unpaidDeduction = emp.payType === 'MONTHLY' ? Math.min(basePay, Math.round(unpaidDays * dailyRate)) : 0;
   const adj = state.adjustments[`${targetMonth}_${emp.id}`] || { bonus: 0, deduction: 0, wht: 0, memo: '' };
   const extraBonus = Number(adj.bonus) || 0, extraDeduction = Number(adj.deduction) || 0, whtDeduction = Number(adj.wht) || 0;
+  const attBonusCfgAmt = Number(state.settings.attendanceBonusAmount) || 0;
+  const attBonusEligible = emp.attendanceBonusEligible !== undefined ? !!emp.attendanceBonusEligible : (emp.payType === 'MONTHLY');
+  const attendanceBonus = (state.settings.attendanceBonusEnabled === true && attBonusCfgAmt > 0 && attBonusEligible && !isProrated && !isNotEmployed && logs.length > 0 && tl === 0 && unpaidDays === 0 && sickLeaveDays === 0)
+    ? attBonusCfgAmt
+    : 0;
+
   const ssoDeduction = (state.settings.ssoEnabled && emp.ssoEligible)
     ? Math.min(Number(state.settings.ssoCapThb ?? 875), Math.round(basePay * ((Number(state.settings.ssoRateThb ?? 5)) / 100)))
     : 0;
   const employerSso = ssoDeduction;
-  const totalEarnings = basePay + otPay + holidayPay + extraBonus;
+  const totalEarnings = basePay + otPay + holidayPay + attendanceBonus + extraBonus;
   const totalDeductions = lateDeduction + unpaidDeduction + extraDeduction + ssoDeduction + whtDeduction;
   const netPay = Math.max(0, totalEarnings - totalDeductions);
   const employerTotalCost = totalEarnings + employerSso;
@@ -589,7 +770,8 @@ function calculateMonthlyPayroll(emp, targetMonth) {
     emp, empId: emp.id, targetMonth, workDaysCount: logs.length,
     totalWorkedHours: +tw.toFixed(1), totalOtHours: +to.toFixed(1), totalHolidayHours: +th.toFixed(1),
     totalLateMins: tl, unpaidLeaveDays: unpaidDays,
-    basePay, otPay, holidayPay, extraBonus, extraDeduction, adjMemo: adj.memo || '',
+    fullBasePay, basePay, isProrated, isNotEmployed, prorataEmployedDays, prorataTotalDays,
+    otPay, holidayPay, attendanceBonus, extraBonus, extraDeduction, adjMemo: adj.memo || '',
     lateDeduction, unpaidDeduction, ssoDeduction, whtDeduction, employerSso,
     totalEarnings, totalDeductions, netPay, employerTotalCost,
     transferPaid: false, transferPaidAt: ''
@@ -610,6 +792,12 @@ function getPayrollViewData(targetMonth) {
         const employerTotalCost = r.employerTotalCost ?? (totalEarnings + employerSso);
         return {
           ...r,
+          attendanceBonus: Number(r.attendanceBonus) || 0,
+          isProrated: !!r.isProrated,
+          isNotEmployed: !!r.isNotEmployed,
+          prorataEmployedDays: r.prorataEmployedDays ?? 0,
+          prorataTotalDays: r.prorataTotalDays ?? 0,
+          fullBasePay: r.fullBasePay ?? (Number(r.basePay) || 0),
           whtDeduction,
           employerSso,
           employerTotalCost,
@@ -649,7 +837,7 @@ function computeAnnualTaxSummary(year) {
     const view = getPayrollViewData(ym);
     if (view.isClosed) closedCount++;
     view.rows.forEach(r => {
-      const hasActivity = view.isClosed || r.workDaysCount > 0 || r.extraBonus > 0 || r.whtDeduction > 0 || r.extraDeduction > 0;
+      const hasActivity = view.isClosed || r.workDaysCount > 0 || r.extraBonus > 0 || (r.attendanceBonus || 0) > 0 || r.whtDeduction > 0 || r.extraDeduction > 0;
       if (!hasActivity) return;
       const eid = r.empId || r.emp.id;
       const liveEmp = state.employees.find(e => e.id === eid);
@@ -666,6 +854,99 @@ function computeAnnualTaxSummary(year) {
     });
   }
   return { year, closedCount, items: Array.from(map.values()) };
+}
+
+function renderPayslipDocument() {
+  if (!currentPayslipCtx || currentPayslipCtx.type !== 'payslip') return;
+  const { empId, month: m, lang } = currentPayslipCtx;
+  ['th', 'ko', 'en'].forEach(code => {
+    const isCur = code === lang;
+    document.querySelectorAll(`.payslip-lang-btn-${code}`).forEach(b => {
+      b.className = `payslip-lang-btn-${code} px-2.5 py-1 rounded-lg transition ${isCur ? 'bg-white text-wood-700 shadow-sm font-extrabold' : 'text-stone-600 hover:text-warm-900'}`;
+    });
+  });
+
+  const view = getPayrollViewData(m), r = view.rows.find(x => (x.empId || x.emp?.id) === empId);
+  if (!r) return;
+  const emp = r.emp, rules = view.rules;
+  const storeMeta = [state.settings.storeTaxId ? `Tax ID: ${state.settings.storeTaxId}` : '', state.settings.storeAddress || ''].filter(Boolean).join(' · ');
+  const bankInfo = (emp.bankName || emp.bankAccount) ? `<p class="text-xs text-stone-600 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200">${escapeHtml(tFor(lang, 'payslipBankAccount', { bank: emp.bankName || '-', account: emp.bankAccount || '' }))}</p>` : '';
+  const closedBadge = view.isClosed ? `<span class="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold align-middle">[${escapeHtml(tFor(lang, 'payslipClosedBadge'))}]</span>` : '';
+  const basePayLabel = r.isNotEmployed
+    ? `${tFor(lang, 'payslipBasePay')} (${tFor(lang, 'badgeNotEmployed')})`
+    : (r.isProrated ? `${tFor(lang, 'payslipBasePay')} (${tFor(lang, 'payslipProrataNote', { d: r.prorataEmployedDays, t: r.prorataTotalDays })})` : tFor(lang, 'payslipBasePay'));
+
+  document.getElementById('payslip-print-area').innerHTML = `
+    <div class="border-b-2 border-warm-900 pb-4 flex items-start justify-between gap-4">
+      <div><span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreNameFor(lang))} · PAYSLIP</span><h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(tFor(lang, 'payslipTitle', { month: m }))}${closedBadge}</h3>${storeMeta ? `<p class="text-[11px] text-stone-500 mt-1">${escapeHtml(storeMeta)}</p>` : ''}</div>
+      <div class="text-right text-xs text-stone-500 shrink-0"><p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p><p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? tFor(lang, 'payTypeMonthly') : tFor(lang, 'payTypeHourly'))})</p><p class="mt-0.5">${escapeHtml(tFor(lang, 'payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p></div>
+    </div>${bankInfo}
+    <div class="grid grid-cols-3 gap-2 bg-warm-50 p-3.5 rounded-2xl border border-warm-200 text-xs">
+      <div><span class="text-stone-500 block">${escapeHtml(tFor(lang, 'payslipWorkDays'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(tFor(lang, 'payslipWorkUnit', { d: r.workDaysCount }))}</strong></div>
+      <div><span class="text-stone-500 block">${escapeHtml(tFor(lang, 'payslipHoursBreakdown'))}</span><strong class="text-warm-900 text-sm">${r.totalWorkedHours}h / ${r.totalOtHours}h / ${r.totalHolidayHours}h</strong></div>
+      <div><span class="text-stone-500 block">${escapeHtml(tFor(lang, 'payslipLateUnpaid'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(tFor(lang, 'payslipLateUnpaidVal', { m: r.totalLateMins, d: r.unpaidLeaveDays }))}</strong></div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-emerald-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(lang, 'payslipEarningsTitle'))}</h4><div class="flex justify-between gap-2"><span>${escapeHtml(basePayLabel)}</span><span class="font-mono font-bold shrink-0">${formatMoney(r.basePay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold">${formatMoney(r.otPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold">${formatMoney(r.holidayPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipAttBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.attendanceBonus || 0)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipExtraBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.extraBonus)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(tFor(lang, 'payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings)}</span></div></div>
+      <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-rose-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(tFor(lang, 'payslipDeductionsTitle'))}</h4><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold">${formatMoney(r.lateDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold">${formatMoney(r.unpaidDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipSsoDed'))}</span><span class="font-mono font-bold">${formatMoney(r.ssoDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipWhtDed'))}</span><span class="font-mono font-bold">${formatMoney(r.whtDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(tFor(lang, 'payslipExtraDed'))}</span><span class="font-mono font-bold">${formatMoney(r.extraDeduction)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(tFor(lang, 'payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions)}</span></div></div>
+    </div>
+    ${r.adjMemo ? `<p class="text-xs text-stone-500 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200"><strong>${escapeHtml(tFor(lang, 'payslipAdjMemo'))}</strong> ${escapeHtml(r.adjMemo)}</p>` : ''}
+    <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between"><div><span class="text-xs text-stone-300">${escapeHtml(tFor(lang, 'payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(tFor(lang, 'payslipNetSub'))}</p></div><span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay)}</span></div>
+    <p class="text-[11px] text-stone-500 text-right">${escapeHtml(tFor(lang, 'payslipEmployerSsoNote', { amt: formatMoney(r.employerSso) }))}</p>`;
+}
+
+function buildPayslipImageFilename() {
+  let rawName = 'staff';
+  if (currentPayslipCtx?.type === 'tawi') {
+    const it = computeAnnualTaxSummary(currentPayslipCtx.year).items.find(x => x.empId === currentPayslipCtx.empId);
+    rawName = it?.emp?.name || 'staff';
+    const safeName = String(rawName).replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '') || 'staff';
+    return `50tawi_${currentPayslipCtx.year}_${safeName}_${currentPayslipCtx.docLang || 'th'}.png`;
+  }
+  if (currentPayslipCtx?.type === 'payslip') {
+    const view = getPayrollViewData(currentPayslipCtx.month);
+    const r = view.rows.find(x => (x.empId || x.emp?.id) === currentPayslipCtx.empId);
+    rawName = r?.emp?.name || 'staff';
+    const safeName = String(rawName).replace(/[\\/:*?"<>|\s]+/g, '_').replace(/^_+|_+$/g, '') || 'staff';
+    return `payslip_${currentPayslipCtx.month}_${safeName}_${currentPayslipCtx.lang || 'ko'}.png`;
+  }
+  return `payslip_${getTodayStr()}.png`;
+}
+
+async function capturePayslipToBlob() {
+  if (typeof window.html2canvas !== 'function') throw new Error('html2canvas missing');
+  const src = document.getElementById('payslip-print-area');
+  if (!src) throw new Error('Print area missing');
+  if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }
+  const wrap = document.createElement('div');
+  wrap.className = 'font-sans text-warm-900 bg-white';
+  wrap.style.cssText = 'width:720px;padding:32px;background:#ffffff;position:fixed;left:-99999px;top:0;z-index:-1;box-sizing:border-box;';
+  const clone = src.cloneNode(true);
+  clone.removeAttribute('id');
+  wrap.appendChild(clone);
+  document.body.appendChild(wrap);
+  try {
+    const canvas = await window.html2canvas(wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true, logging: false });
+    const blob = await new Promise((resolve, reject) => {
+      canvas.toBlob(b => (b ? resolve(b) : reject(new Error('toBlob failed'))), 'image/png');
+    });
+    return blob;
+  } finally {
+    wrap.remove();
+  }
+}
+
+function downloadBlobFile(blob, filename) {
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function setPayslipImageButtonsBusy(busy) {
+  ['btn-save-png', 'btn-share-line'].forEach(id => {
+    const b = document.getElementById(id);
+    if (b) { b.disabled = busy; b.classList.toggle('opacity-60', busy); }
+  });
 }
 
 function render50Tawi(empId, year) {
@@ -926,6 +1207,12 @@ function renderPayrollTab() {
   document.getElementById('rule-work-days').value = String(state.settings.standardWorkDays || 26);
   document.getElementById('rule-sso-rate').value = state.settings.ssoRateThb ?? 5;
   document.getElementById('rule-sso-cap').value = state.settings.ssoCapThb ?? 875;
+  const attEnEl = document.getElementById('rule-att-bonus-enabled');
+  const attAmtEl = document.getElementById('rule-att-bonus-amount');
+  const proEnEl = document.getElementById('rule-prorata-enabled');
+  if (attEnEl) attEnEl.checked = state.settings.attendanceBonusEnabled === true;
+  if (attAmtEl && document.activeElement !== attAmtEl) attAmtEl.value = state.settings.attendanceBonusAmount ?? 1000;
+  if (proEnEl) proEnEl.checked = state.settings.prorataEnabled !== false;
 
   const view = getPayrollViewData(tm), rows = view.rows;
   const closeBtn = document.getElementById('btn-close-payroll'), banner = document.getElementById('payroll-closure-banner');
@@ -954,6 +1241,13 @@ function renderPayrollTab() {
   if (rows.length === 0) { tb.innerHTML = `<tr><td colspan="9" class="py-10 text-center text-stone-400 text-xs">${escapeHtml(t('payrollEmpty'))}</td></tr>`; return; }
   tb.innerHTML = rows.map(r => {
     const eid = r.empId || r.emp.id;
+    const baseSubBadge = r.isNotEmployed
+      ? `<div class="text-[10px] font-sans font-bold text-stone-400 mt-0.5">${escapeHtml(t('badgeNotEmployed'))}</div>`
+      : (r.isProrated ? `<div class="text-[10px] font-sans font-bold text-amber-700 mt-0.5">${escapeHtml(t('badgeProrata', { d: r.prorataEmployedDays, t: r.prorataTotalDays }))}</div>` : '');
+    const plusTotal = r.otPay + r.holidayPay + (r.attendanceBonus || 0) + r.extraBonus;
+    const attBonusSub = (r.attendanceBonus || 0) > 0
+      ? `<div class="text-[10px] font-sans font-bold text-emerald-700 mt-0.5">${escapeHtml(t('badgeAttBonus', { amt: formatMoney(r.attendanceBonus) }))}</div>`
+      : '';
     const actionBtns = view.isClosed
       ? `<button type="button" onclick="HR.toggleTransferPaid('${tm}','${eid}')" class="px-2.5 py-1.5 rounded-xl text-xs font-bold border transition ${r.transferPaid ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-amber-50 text-wood-700 border-amber-300 hover:bg-amber-100'}">${escapeHtml(r.transferPaid ? t('btnTransferPaid') : t('btnTransferUnpaid'))}</button>
          <button type="button" disabled class="px-2 py-1.5 rounded-xl border border-stone-200 bg-stone-100 text-stone-400 text-xs font-bold cursor-not-allowed">${escapeHtml(t('btnAdjust'))}</button>
@@ -963,8 +1257,8 @@ function renderPayrollTab() {
     return `<tr class="hover:bg-warm-50/80 transition">
       <td class="py-3.5 px-4"><div class="font-bold text-warm-900">${escapeHtml(r.emp.name)}</div><div class="text-xs text-stone-500">${escapeHtml(r.emp.role)} · <span class="font-bold text-wood-600">${escapeHtml(r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))}</span></div></td>
       <td class="py-3.5 px-4 text-xs"><div class="font-bold text-warm-900">${escapeHtml(t('payWorkSummary', { d: r.workDaysCount, h: r.totalWorkedHours }))}</div><div class="text-stone-500">${escapeHtml(t('payOtUnpaidSummary', { ot: r.totalOtHours, hol: r.totalHolidayHours, u: r.unpaidLeaveDays }))}</div></td>
-      <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(r.basePay)}</td>
-      <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold">+${formatMoney(r.otPay + r.holidayPay + r.extraBonus)}</td>
+      <td class="py-3.5 px-4 text-right font-mono font-bold text-warm-900">${formatMoney(r.basePay)}${baseSubBadge}</td>
+      <td class="py-3.5 px-4 text-right font-mono text-xs text-emerald-700 font-bold">+${formatMoney(plusTotal)}${attBonusSub}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-rose-600 font-bold">-${formatMoney(r.lateDeduction + r.unpaidDeduction + r.extraDeduction)}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-stone-600">-${formatMoney(r.ssoDeduction)}</td>
       <td class="py-3.5 px-4 text-right font-mono text-xs text-indigo-700 font-bold">-${formatMoney(r.whtDeduction)}</td>
@@ -1024,6 +1318,7 @@ function renderEmployeesTab() {
   const dl = t('daysFull'), curYear = getTodayStr().slice(0, 4), unitD = t('unitDay');
   grid.innerHTML = state.employees.map(emp => {
     const act = emp.active !== false, off = (typeof emp.weeklyDayOff === 'number' && emp.weeklyDayOff >= 0) ? dl[emp.weeklyDayOff] : t('optStoreRule');
+    const attBonusElig = emp.attendanceBonusEligible !== undefined ? !!emp.attendanceBonusEligible : (emp.payType === 'MONTHLY');
     const hireStr = emp.hireDate ? `${emp.hireDate}${emp.resignDate ? ` (${t('empCardResign')} ${emp.resignDate})` : ''}` : (emp.resignDate ? `${t('empCardResign')} ${emp.resignDate}` : '');
     const bankStr = (emp.bankName || emp.bankAccount) ? `${emp.bankName || ''} ${emp.bankAccount || ''}`.trim() : '';
     const lStats = getEmployeeLeaveStats(emp, curYear);
@@ -1034,6 +1329,7 @@ function renderEmployeesTab() {
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(emp.payType === 'MONTHLY' ? t('empCardBaseMonthly') : t('empCardBaseHourly'))}</span><span class="font-mono font-extrabold text-warm-900">${formatMoney(emp.baseRate)}</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardShiftBreak'))}</span><span class="font-mono font-semibold text-warm-800">${escapeHtml(emp.shiftStart)}~${escapeHtml(emp.shiftEnd)} (${emp.breakMinutes ?? 60}${escapeHtml(t('unitMin'))})</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardOffSso'))}</span><span class="font-semibold text-warm-800">${escapeHtml(off)} · ${escapeHtml(emp.ssoEligible ? t('ssoApplied') : t('ssoNotApplied'))}</span></div>
+          <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardAttBonus'))}</span><span class="font-semibold ${attBonusElig ? 'text-emerald-700' : 'text-stone-500'}">${escapeHtml(attBonusElig ? t('attBonusApplied') : t('attBonusNotApplied'))}</span></div>
           <div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardAnnualLeave'))}</span><span class="font-mono font-bold ${lStats.remaining <= 0 ? 'text-rose-600' : 'text-emerald-700'}">${lStats.remaining} / ${lStats.quota}${escapeHtml(unitD)}</span></div>
           ${hireStr ? `<div class="flex justify-between pt-1 border-t border-warm-100"><span class="text-stone-500">${escapeHtml(t('empCardHireDate'))}</span><span class="font-mono text-warm-800">${escapeHtml(hireStr)}</span></div>` : ''}
           ${emp.phone ? `<div class="flex justify-between"><span class="text-stone-500">${escapeHtml(t('empCardPhone'))}</span><span class="font-mono text-warm-800">${escapeHtml(emp.phone)}</span></div>` : ''}
@@ -1052,6 +1348,7 @@ function renderSettingsTab() {
   const kUrl = document.getElementById('setting-kiosk-url'); if (kUrl) kUrl.value = buildRoleUrl('kiosk');
   const aUrl = document.getElementById('setting-admin-url'); if (aUrl) aUrl.value = buildRoleUrl('admin');
   const ft = document.getElementById('setting-firebase-json'); if (ft && document.activeElement !== ft && activeCustomConfigObj && !ft.value) ft.value = JSON.stringify(activeCustomConfigObj, null, 2);
+  updateDeviceKioskPinUI();
   if (window.HR && window.HR.updateCleanupPreview) window.HR.updateCleanupPreview();
 }
 
@@ -1067,12 +1364,109 @@ window.HR = {
     if (saveToStore) { previewLanguage = null; try { window.sessionStorage.removeItem(SESSION_LANG_PREVIEW_KEY); } catch (e) {} await persistSettings({ language: lang }); showToast(t('toastLangSaved'), 'success'); }
     else { previewLanguage = lang; try { window.sessionStorage.setItem(SESSION_LANG_PREVIEW_KEY, lang); } catch (e) {} renderAllActiveViews(); showToast(t('toastLangPreview'), 'info'); }
   },
-  setTawiLang(lang) { tawiDocLang = lang === 'thEn' ? 'thEn' : 'th'; if (currentTawiState) render50Tawi(currentTawiState.empId, currentTawiState.year); },
+  setPayslipLang(lang) {
+    if (!currentPayslipCtx || currentPayslipCtx.type !== 'payslip') return;
+    currentPayslipCtx.lang = I18N[lang] ? lang : 'ko';
+    renderPayslipDocument();
+  },
+  setTawiLang(lang) {
+    tawiDocLang = lang === 'thEn' ? 'thEn' : 'th';
+    if (currentTawiState) {
+      currentPayslipCtx = { type: 'tawi', empId: currentTawiState.empId, year: currentTawiState.year, docLang: tawiDocLang };
+      render50Tawi(currentTawiState.empId, currentTawiState.year);
+    }
+  },
+  async downloadPayslipImage() {
+    setPayslipImageButtonsBusy(true);
+    showToast(t('toastImgGenerating'), 'info');
+    try {
+      const blob = await capturePayslipToBlob();
+      downloadBlobFile(blob, buildPayslipImageFilename());
+      showToast(t('toastImgSaved'), 'success');
+    } catch (err) {
+      console.error(err);
+      showToast(t('toastImgError'), 'error');
+    } finally {
+      setPayslipImageButtonsBusy(false);
+    }
+  },
+  async sharePayslipImage() {
+    setPayslipImageButtonsBusy(true);
+    showToast(t('toastImgGenerating'), 'info');
+    try {
+      const blob = await capturePayslipToBlob();
+      const filename = buildPayslipImageFilename();
+      const file = new File([blob], filename, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({ files: [file], title: filename });
+        } catch (shareErr) {
+          if (shareErr && shareErr.name === 'AbortError') return;
+          throw shareErr;
+        }
+      } else {
+        downloadBlobFile(blob, filename);
+        showToast(t('toastImgShareFallback'), 'info');
+      }
+    } catch (err) {
+      console.error(err);
+      showToast(t('toastImgError'), 'error');
+    } finally {
+      setPayslipImageButtonsBusy(false);
+    }
+  },
+  async toggleKioskWakeLock() {
+    if (wakeLockSentinel || wakeLockDesired) {
+      wakeLockDesired = false;
+      safeLocalSet(KIOSK_WAKELOCK_KEY, '0');
+      await releaseWakeLock();
+      showToast(t('toastWakeOff'), 'info');
+    } else {
+      wakeLockDesired = true;
+      safeLocalSet(KIOSK_WAKELOCK_KEY, '1');
+      const ok = await acquireWakeLock(false);
+      if (ok) showToast(t('toastWakeOn'), 'success');
+    }
+  },
+  toggleKioskFullscreen() {
+    if (document.fullscreenElement) {
+      if (document.exitFullscreen) document.exitFullscreen().catch(() => {});
+    } else {
+      if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+    }
+  },
+  async promptPwaInstall(fromKiosk = false) {
+    if (fromKiosk) {
+      safeLocalSet(KIOSK_DEFAULT_KEY, '1');
+      updateDeviceKioskPinUI();
+    }
+    if (deferredInstallPrompt) {
+      try {
+        deferredInstallPrompt.prompt();
+        await deferredInstallPrompt.userChoice;
+      } catch (e) {}
+      deferredInstallPrompt = null;
+      updatePwaInstallUI();
+    } else {
+      showToast(t('toastInstallIosHint'), 'info');
+    }
+  },
+  toggleDeviceKioskPin() {
+    const isPinned = safeLocalGet(KIOSK_DEFAULT_KEY) === '1';
+    if (isPinned) {
+      safeLocalRemove(KIOSK_DEFAULT_KEY);
+      showToast(t('toastKioskUnpinned'), 'info');
+    } else {
+      safeLocalSet(KIOSK_DEFAULT_KEY, '1');
+      showToast(t('toastKioskPinned'), 'success');
+    }
+    updateDeviceKioskPinUI();
+  },
   toggleKioskCamera() { kioskVirtualMode = !kioskVirtualMode; if (kioskVirtualMode) stopKioskCamera(); else if (kioskSelectedEmpId) initKioskCamera(); else updateCameraStatusUI(); },
-  selectKioskEmp(empId) { kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView(); if (!kioskVirtualMode) initKioskCamera(); },
+  selectKioskEmp(empId) { kioskSelectedEmpId = empId; kioskPinBuffer = ''; updateKioskPinDots(); renderKioskView(); scheduleKioskIdleReset(); if (!kioskVirtualMode) initKioskCamera(); },
   kioskPinPress(digit) {
     if (kioskPinBuffer.length >= 4) return;
-    kioskPinBuffer += digit; updateKioskPinDots();
+    kioskPinBuffer += digit; updateKioskPinDots(); scheduleKioskIdleReset();
     if (kioskPinBuffer.length === 4) {
       const m = state.employees.filter(e => e.active !== false).find(e => e.pin === kioskPinBuffer);
       if (m) {
@@ -1081,8 +1475,8 @@ window.HR = {
       } else document.getElementById('kiosk-pin-hint').textContent = t('kioskPinHintNotFound');
     }
   },
-  kioskPinBackspace() { kioskPinBuffer = kioskPinBuffer.slice(0, -1); updateKioskPinDots(); renderKioskView(); },
-  kioskPinClear(resetSelected = true) { kioskPinBuffer = ''; updateKioskPinDots(); if (resetSelected) { kioskSelectedEmpId = null; stopKioskCamera(); } renderKioskView(); },
+  kioskPinBackspace() { kioskPinBuffer = kioskPinBuffer.slice(0, -1); updateKioskPinDots(); renderKioskView(); scheduleKioskIdleReset(); },
+  kioskPinClear(resetSelected = true) { kioskPinBuffer = ''; updateKioskPinDots(); if (resetSelected) { kioskSelectedEmpId = null; stopKioskCamera(); clearKioskIdleTimer(); } renderKioskView(); },
   async submitKioskPunch(dir) {
     if (kioskPinBuffer.length !== 4) { showToast(t('toastPinIncomplete'), 'warning'); return; }
     const emp = state.employees.filter(e => e.active !== false).find(e => e.pin === kioskPinBuffer);
@@ -1293,7 +1687,20 @@ window.HR = {
   renderPayrollTab() { renderPayrollTab(); },
   async savePayrollRules() {
     const rv = parseFloat(document.getElementById('rule-sso-rate').value), cv = parseInt(document.getElementById('rule-sso-cap').value, 10);
-    await persistSettings({ otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5, holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0, lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0, lateDeductionEnabled: document.getElementById('rule-late-enabled').checked, ssoEnabled: document.getElementById('rule-sso-enabled').checked, ssoRateThb: Number.isNaN(rv) ? 5 : rv, ssoCapThb: Number.isNaN(cv) ? 875 : cv, standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26 });
+    const attAmtVal = parseInt(document.getElementById('rule-att-bonus-amount')?.value, 10);
+    await persistSettings({
+      otMultiplier: parseFloat(document.getElementById('rule-ot-mult').value) || 1.5,
+      holidayOtMultiplier: parseFloat(document.getElementById('rule-hol-mult').value) || 2.0,
+      lateGraceMinutes: parseInt(document.getElementById('rule-late-grace').value, 10) || 0,
+      lateDeductionEnabled: document.getElementById('rule-late-enabled').checked,
+      ssoEnabled: document.getElementById('rule-sso-enabled').checked,
+      ssoRateThb: Number.isNaN(rv) ? 5 : rv,
+      ssoCapThb: Number.isNaN(cv) ? 875 : cv,
+      standardWorkDays: parseInt(document.getElementById('rule-work-days').value, 10) || 26,
+      attendanceBonusEnabled: document.getElementById('rule-att-bonus-enabled')?.checked === true,
+      attendanceBonusAmount: Number.isNaN(attAmtVal) ? 1000 : Math.max(0, attAmtVal),
+      prorataEnabled: document.getElementById('rule-prorata-enabled')?.checked !== false
+    });
     showToast(t('toastRulesSaved'), 'success');
   },
   confirmClosePayroll() {
@@ -1301,9 +1708,31 @@ window.HR = {
     this.openConfirm(t('confirmClosePayrollTitle'), t('confirmClosePayrollMsg', { month: m }), async () => {
       const rows = state.employees.map(emp => {
         const r = calculateMonthlyPayroll(emp, m);
-        return { empId: emp.id, empSnapshot: { id: emp.id, name: emp.name, role: emp.role, payType: emp.payType, baseRate: emp.baseRate, idNumber: emp.idNumber || '', bankName: emp.bankName || '', bankAccount: emp.bankAccount || '' }, workDaysCount: r.workDaysCount, totalWorkedHours: r.totalWorkedHours, totalOtHours: r.totalOtHours, totalHolidayHours: r.totalHolidayHours, totalLateMins: r.totalLateMins, unpaidLeaveDays: r.unpaidLeaveDays, basePay: r.basePay, otPay: r.otPay, holidayPay: r.holidayPay, extraBonus: r.extraBonus, extraDeduction: r.extraDeduction, adjMemo: r.adjMemo, lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, whtDeduction: r.whtDeduction, employerSso: r.employerSso, totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay, employerTotalCost: r.employerTotalCost, transferPaid: false, transferPaidAt: '' };
+        return {
+          empId: emp.id,
+          empSnapshot: { id: emp.id, name: emp.name, role: emp.role, payType: emp.payType, baseRate: emp.baseRate, idNumber: emp.idNumber || '', bankName: emp.bankName || '', bankAccount: emp.bankAccount || '' },
+          workDaysCount: r.workDaysCount, totalWorkedHours: r.totalWorkedHours, totalOtHours: r.totalOtHours, totalHolidayHours: r.totalHolidayHours, totalLateMins: r.totalLateMins, unpaidLeaveDays: r.unpaidLeaveDays,
+          fullBasePay: r.fullBasePay, basePay: r.basePay, isProrated: r.isProrated, isNotEmployed: r.isNotEmployed, prorataEmployedDays: r.prorataEmployedDays, prorataTotalDays: r.prorataTotalDays,
+          otPay: r.otPay, holidayPay: r.holidayPay, attendanceBonus: r.attendanceBonus, extraBonus: r.extraBonus, extraDeduction: r.extraDeduction, adjMemo: r.adjMemo,
+          lateDeduction: r.lateDeduction, unpaidDeduction: r.unpaidDeduction, ssoDeduction: r.ssoDeduction, whtDeduction: r.whtDeduction, employerSso: r.employerSso,
+          totalEarnings: r.totalEarnings, totalDeductions: r.totalDeductions, netPay: r.netPay, employerTotalCost: r.employerTotalCost,
+          transferPaid: false, transferPaidAt: ''
+        };
       });
-      await persistDoc('payroll_closures', m, { id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: 'THB', rulesSnapshot: { otMultiplier: state.settings.otMultiplier ?? 1.5, holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0, ssoRateThb: state.settings.ssoRateThb ?? 5, ssoCapThb: state.settings.ssoCapThb ?? 875, standardWorkDays: state.settings.standardWorkDays ?? 26 }, rows });
+      await persistDoc('payroll_closures', m, {
+        id: m, month: m, closedAt: Date.now(), closedDate: getTodayStr(), currency: 'THB',
+        rulesSnapshot: {
+          otMultiplier: state.settings.otMultiplier ?? 1.5,
+          holidayOtMultiplier: state.settings.holidayOtMultiplier ?? 2.0,
+          ssoRateThb: state.settings.ssoRateThb ?? 5,
+          ssoCapThb: state.settings.ssoCapThb ?? 875,
+          standardWorkDays: state.settings.standardWorkDays ?? 26,
+          attendanceBonusEnabled: state.settings.attendanceBonusEnabled === true,
+          attendanceBonusAmount: state.settings.attendanceBonusAmount ?? 1000,
+          prorataEnabled: state.settings.prorataEnabled !== false
+        },
+        rows
+      });
       showToast(t('toastPayrollClosed', { month: m }), 'success');
     });
   },
@@ -1327,7 +1756,8 @@ window.HR = {
   },
   estimateMonthlyWht() {
     const empId = document.getElementById('adj-f-emp').value, month = document.getElementById('adj-f-month').value, emp = state.employees.find(e => e.id === empId); if (!emp) return;
-    const r = calculateMonthlyPayroll(emp, month), curBonus = Number(document.getElementById('adj-f-bonus').value) || 0, annualTax = computeThaiProgressiveTax((r.basePay + r.otPay + r.holidayPay + curBonus) * 12, r.ssoDeduction * 12);
+    const r = calculateMonthlyPayroll(emp, month), curBonus = Number(document.getElementById('adj-f-bonus').value) || 0;
+    const annualTax = computeThaiProgressiveTax((r.basePay + r.otPay + r.holidayPay + (r.attendanceBonus || 0) + curBonus) * 12, r.ssoDeduction * 12);
     document.getElementById('adj-f-wht').value = Math.round(annualTax / 12); showToast(t('toastWhtEstimated'), 'info');
   },
   async savePayrollAdjustment(e) {
@@ -1336,33 +1766,17 @@ window.HR = {
     this.closeModal('modal-adj'); showToast(t('toastAdjSaved'), 'success');
   },
   openPayslipModal(empId) {
-    currentTawiState = null; document.getElementById('tawi-lang-bar').classList.add('hidden');
-    const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), r = view.rows.find(x => (x.empId || x.emp?.id) === empId); if (!r) return;
-    const emp = r.emp, rules = view.rules, storeMeta = [state.settings.storeTaxId ? `Tax ID: ${state.settings.storeTaxId}` : '', state.settings.storeAddress || ''].filter(Boolean).join(' · ');
-    const bankInfo = (emp.bankName || emp.bankAccount) ? `<p class="text-xs text-stone-600 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200">${escapeHtml(t('payslipBankAccount', { bank: emp.bankName || '-', account: emp.bankAccount || '' }))}</p>` : '';
-    const closedBadge = view.isClosed ? `<span class="ml-2 px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-xs font-extrabold align-middle">[${escapeHtml(t('payslipClosedBadge'))}]</span>` : '';
-    document.getElementById('payslip-print-area').innerHTML = `
-      <div class="border-b-2 border-warm-900 pb-4 flex items-start justify-between gap-4">
-        <div><span class="text-xs font-extrabold uppercase tracking-widest text-wood-600">${escapeHtml(getDisplayStoreName())} · PAYSLIP</span><h3 class="text-2xl font-extrabold text-warm-900 mt-0.5">${escapeHtml(t('payslipTitle', { month: m }))}${closedBadge}</h3>${storeMeta ? `<p class="text-[11px] text-stone-500 mt-1">${escapeHtml(storeMeta)}</p>` : ''}</div>
-        <div class="text-right text-xs text-stone-500 shrink-0"><p class="font-extrabold text-warm-900 text-sm">${escapeHtml(emp.name)}</p><p>${escapeHtml(emp.role)} (${escapeHtml(emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'))})</p><p class="mt-0.5">${escapeHtml(t('payslipIssuedAt', { date: view.isClosed ? (view.closure.closedDate || getTodayStr()) : getTodayStr() }))}</p></div>
-      </div>${bankInfo}
-      <div class="grid grid-cols-3 gap-2 bg-warm-50 p-3.5 rounded-2xl border border-warm-200 text-xs">
-        <div><span class="text-stone-500 block">${escapeHtml(t('payslipWorkDays'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(t('payslipWorkUnit', { d: r.workDaysCount }))}</strong></div>
-        <div><span class="text-stone-500 block">${escapeHtml(t('payslipHoursBreakdown'))}</span><strong class="text-warm-900 text-sm">${r.totalWorkedHours}h / ${r.totalOtHours}h / ${r.totalHolidayHours}h</strong></div>
-        <div><span class="text-stone-500 block">${escapeHtml(t('payslipLateUnpaid'))}</span><strong class="text-warm-900 text-sm">${escapeHtml(t('payslipLateUnpaidVal', { m: r.totalLateMins, d: r.unpaidLeaveDays }))}</strong></div>
-      </div>
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-        <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-emerald-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(t('payslipEarningsTitle'))}</h4><div class="flex justify-between"><span>${escapeHtml(t('payslipBasePay'))}</span><span class="font-mono font-bold">${formatMoney(r.basePay)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipOtPay', { x: rules.otMultiplier ?? 1.5 }))}</span><span class="font-mono font-bold">${formatMoney(r.otPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipHolPay', { x: rules.holidayOtMultiplier ?? 2.0 }))}</span><span class="font-mono font-bold">${formatMoney(r.holidayPay)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipExtraBonus'))}</span><span class="font-mono font-bold">${formatMoney(r.extraBonus)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-warm-900"><span>${escapeHtml(t('payslipTotalEarnings'))}</span><span class="font-mono">${formatMoney(r.totalEarnings)}</span></div></div>
-        <div class="border border-warm-200 rounded-2xl p-4 space-y-2.5"><h4 class="font-extrabold text-rose-800 border-b border-warm-100 pb-1.5 text-xs uppercase">${escapeHtml(t('payslipDeductionsTitle'))}</h4><div class="flex justify-between"><span>${escapeHtml(t('payslipLateDed', { m: r.totalLateMins }))}</span><span class="font-mono font-bold">${formatMoney(r.lateDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipUnpaidDed', { d: r.unpaidLeaveDays }))}</span><span class="font-mono font-bold">${formatMoney(r.unpaidDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipSsoDed'))}</span><span class="font-mono font-bold">${formatMoney(r.ssoDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipWhtDed'))}</span><span class="font-mono font-bold">${formatMoney(r.whtDeduction)}</span></div><div class="flex justify-between"><span>${escapeHtml(t('payslipExtraDed'))}</span><span class="font-mono font-bold">${formatMoney(r.extraDeduction)}</span></div><div class="flex justify-between pt-2 border-t border-warm-200 font-extrabold text-rose-700"><span>${escapeHtml(t('payslipTotalDeductions'))}</span><span class="font-mono">${formatMoney(r.totalDeductions)}</span></div></div>
-      </div>
-      ${r.adjMemo ? `<p class="text-xs text-stone-500 bg-warm-50 px-3.5 py-2 rounded-xl border border-warm-200"><strong>${escapeHtml(t('payslipAdjMemo'))}</strong> ${escapeHtml(r.adjMemo)}</p>` : ''}
-      <div class="bg-warm-900 text-white rounded-2xl p-4 flex items-center justify-between"><div><span class="text-xs text-stone-300">${escapeHtml(t('payslipNetLabel'))}</span><p class="text-[11px] text-stone-400">${escapeHtml(t('payslipNetSub'))}</p></div><span class="text-2xl font-extrabold font-mono text-amber-300">${formatMoney(r.netPay)}</span></div>
-      <p class="text-[11px] text-stone-500 text-right">${escapeHtml(t('payslipEmployerSsoNote', { amt: formatMoney(r.employerSso) }))}</p>`;
+    currentTawiState = null;
+    document.getElementById('tawi-lang-bar')?.classList.add('hidden');
+    document.getElementById('payslip-lang-bar')?.classList.remove('hidden');
+    const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr();
+    currentPayslipCtx = { type: 'payslip', empId, month: m, lang: getLang() };
+    renderPayslipDocument();
     document.getElementById('modal-payslip').classList.remove('hidden');
   },
   exportPayrollCSV() {
     const m = document.getElementById('payroll-month-input').value || getCurrentMonthStr(), view = getPayrollViewData(m), rows = [t('csvPayrollHeaders')];
-    view.rows.forEach(r => { rows.push([m, r.emp.name, r.emp.role, r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'), r.workDaysCount, r.totalWorkedHours, r.totalOtHours, r.totalHolidayHours, r.unpaidLeaveDays, r.basePay, r.otPay, r.holidayPay, r.extraBonus, r.lateDeduction, r.unpaidDeduction, r.extraDeduction, r.ssoDeduction, r.whtDeduction, r.employerSso, r.employerTotalCost, r.netPay, r.emp.idNumber || '', r.emp.bankName || '', r.emp.bankAccount || '', view.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'), view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : '-']); });
+    view.rows.forEach(r => { rows.push([m, r.emp.name, r.emp.role, r.emp.payType === 'MONTHLY' ? t('payTypeMonthly') : t('payTypeHourly'), r.workDaysCount, r.totalWorkedHours, r.totalOtHours, r.totalHolidayHours, r.unpaidLeaveDays, r.basePay, r.otPay, r.holidayPay, r.attendanceBonus || 0, r.extraBonus, r.lateDeduction, r.unpaidDeduction, r.extraDeduction, r.ssoDeduction, r.whtDeduction, r.employerSso, r.employerTotalCost, r.netPay, r.emp.idNumber || '', r.emp.bankName || '', r.emp.bankAccount || '', view.isClosed ? t('payslipClosedBadge') : t('badgePayrollOpen'), view.isClosed ? (r.transferPaid ? t('statusPaid') : t('statusUnpaid')) : '-']); });
     downloadCSV(`${t('csvPayrollPrefix')}_${m}.csv`, rows); showToast(t('toastCsvPayrollDone'), 'success');
   },
   exportSsoCSV() {
@@ -1397,7 +1811,11 @@ window.HR = {
   open50TawiModal(empId) {
     const year = document.getElementById('annual-year-select').value || getCurrentMonthStr().slice(0, 4);
     currentTawiState = { empId, year }; tawiDocLang = 'th';
-    document.getElementById('tawi-lang-bar').classList.remove('hidden'); render50Tawi(empId, year); document.getElementById('modal-payslip').classList.remove('hidden');
+    currentPayslipCtx = { type: 'tawi', empId, year, docLang: tawiDocLang };
+    document.getElementById('payslip-lang-bar')?.classList.add('hidden');
+    document.getElementById('tawi-lang-bar')?.classList.remove('hidden');
+    render50Tawi(empId, year);
+    document.getElementById('modal-payslip').classList.remove('hidden');
   },
   async toggleWeeklyOff(idx) { const c = new Set(state.settings.weeklyOffDays || []); if (c.has(idx)) c.delete(idx); else c.add(idx); await persistSettings({ weeklyOffDays: Array.from(c).sort() }); },
   async addHoliday() {
@@ -1446,6 +1864,7 @@ window.HR = {
         getShiftTemplates().map(tpl => `<option value="${tpl.id}">${escapeHtml(tpl.name)} (${escapeHtml(tpl.start)}~${escapeHtml(tpl.end)}, ${Number(tpl.breakMinutes ?? 60)}${escapeHtml(t('unitMin'))})</option>`).join('');
       presetEl.value = '';
     }
+    const attBonusEl = document.getElementById('emp-f-att-bonus');
     if (empId) {
       const emp = state.employees.find(e => e.id === empId); if (!emp) return;
       document.getElementById('modal-emp-title').textContent = t('empModalEditTitle');
@@ -1453,6 +1872,7 @@ window.HR = {
       document.getElementById('emp-f-pin').value = emp.pin; document.getElementById('emp-f-paytype').value = emp.payType; document.getElementById('emp-f-rate').value = emp.baseRate;
       document.getElementById('emp-f-break').value = emp.breakMinutes ?? 60; document.getElementById('emp-f-start').value = emp.shiftStart || '09:00'; document.getElementById('emp-f-end').value = emp.shiftEnd || '18:00';
       document.getElementById('emp-f-dayoff').value = String(emp.weeklyDayOff ?? -1); document.getElementById('emp-f-sso').checked = emp.ssoEligible !== false; document.getElementById('emp-f-active').checked = emp.active !== false;
+      if (attBonusEl) attBonusEl.checked = emp.attendanceBonusEligible !== undefined ? !!emp.attendanceBonusEligible : (emp.payType === 'MONTHLY');
       document.getElementById('emp-f-idnum').value = emp.idNumber || ''; document.getElementById('emp-f-phone').value = emp.phone || '';
       document.getElementById('emp-f-bank').value = emp.bankName || ''; document.getElementById('emp-f-account').value = emp.bankAccount || '';
       document.getElementById('emp-f-hire').value = emp.hireDate || ''; document.getElementById('emp-f-resign').value = emp.resignDate || '';
@@ -1463,6 +1883,7 @@ window.HR = {
       document.getElementById('emp-f-pin').value = String(Math.floor(1000 + Math.random() * 9000)); document.getElementById('emp-f-paytype').value = 'MONTHLY'; document.getElementById('emp-f-rate').value = '';
       document.getElementById('emp-f-break').value = 60; document.getElementById('emp-f-start').value = '09:00'; document.getElementById('emp-f-end').value = '18:00';
       document.getElementById('emp-f-dayoff').value = '-1'; document.getElementById('emp-f-sso').checked = true; document.getElementById('emp-f-active').checked = true;
+      if (attBonusEl) attBonusEl.checked = true;
       document.getElementById('emp-f-annual-quota').value = 6;
       ['emp-f-idnum', 'emp-f-phone', 'emp-f-bank', 'emp-f-account', 'emp-f-hire', 'emp-f-resign'].forEach(k => { document.getElementById(k).value = ''; });
     }
@@ -1473,7 +1894,29 @@ window.HR = {
     const id = document.getElementById('emp-f-id').value, pin = document.getElementById('emp-f-pin').value.trim(), dup = state.employees.find(x => x.pin === pin && x.id !== id);
     if (dup) { showToast(t('toastEmpPinDup', { pin, name: dup.name }), 'error'); return; }
     const ex = id ? state.employees.find(x => x.id === id) : null, docId = id || `emp_${Date.now()}`, qVal = parseInt(document.getElementById('emp-f-annual-quota').value, 10);
-    await persistDoc('employees', docId, { id: docId, name: document.getElementById('emp-f-name').value.trim(), role: document.getElementById('emp-f-role').value.trim(), pin, payType: document.getElementById('emp-f-paytype').value, baseRate: Number(document.getElementById('emp-f-rate').value) || 0, breakMinutes: parseInt(document.getElementById('emp-f-break').value, 10) || 0, shiftStart: document.getElementById('emp-f-start').value, shiftEnd: document.getElementById('emp-f-end').value, weeklyDayOff: parseInt(document.getElementById('emp-f-dayoff').value, 10), annualLeaveQuota: Number.isNaN(qVal) ? 6 : qVal, ssoEligible: document.getElementById('emp-f-sso').checked, active: document.getElementById('emp-f-active').checked, idNumber: document.getElementById('emp-f-idnum').value.trim(), phone: document.getElementById('emp-f-phone').value.trim(), bankName: document.getElementById('emp-f-bank').value.trim(), bankAccount: document.getElementById('emp-f-account').value.trim(), hireDate: document.getElementById('emp-f-hire').value, resignDate: document.getElementById('emp-f-resign').value, createdAt: ex?.createdAt || Date.now() });
+    await persistDoc('employees', docId, {
+      id: docId,
+      name: document.getElementById('emp-f-name').value.trim(),
+      role: document.getElementById('emp-f-role').value.trim(),
+      pin,
+      payType: document.getElementById('emp-f-paytype').value,
+      baseRate: Number(document.getElementById('emp-f-rate').value) || 0,
+      breakMinutes: parseInt(document.getElementById('emp-f-break').value, 10) || 0,
+      shiftStart: document.getElementById('emp-f-start').value,
+      shiftEnd: document.getElementById('emp-f-end').value,
+      weeklyDayOff: parseInt(document.getElementById('emp-f-dayoff').value, 10),
+      annualLeaveQuota: Number.isNaN(qVal) ? 6 : qVal,
+      ssoEligible: document.getElementById('emp-f-sso').checked,
+      attendanceBonusEligible: document.getElementById('emp-f-att-bonus')?.checked !== false,
+      active: document.getElementById('emp-f-active').checked,
+      idNumber: document.getElementById('emp-f-idnum').value.trim(),
+      phone: document.getElementById('emp-f-phone').value.trim(),
+      bankName: document.getElementById('emp-f-bank').value.trim(),
+      bankAccount: document.getElementById('emp-f-account').value.trim(),
+      hireDate: document.getElementById('emp-f-hire').value,
+      resignDate: document.getElementById('emp-f-resign').value,
+      createdAt: ex?.createdAt || Date.now()
+    });
     this.closeModal('modal-employee'); showToast(id ? t('toastEmpUpdated') : t('toastEmpSaved'), 'success');
   },
   async toggleEmployeeActive(empId) {
@@ -1562,6 +2005,10 @@ window.HR = {
 };
 
 async function bootApp() {
+  initPwaAndKioskHardware();
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  }
   try { await initDataLayer(); } catch (e) { console.error(e); }
   finally { document.getElementById('app-loader')?.classList.add('hidden'); applyRouteUI(); }
 }
