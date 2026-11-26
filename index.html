@@ -185,14 +185,14 @@
       </div>
     </main>
 
-    <div id="kiosk-confirm-overlay" class="hidden fixed inset-0 z-50 bg-warm-900/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div id="kiosk-confirm-overlay" onclick="this.classList.add('hidden')" class="hidden fixed inset-0 z-50 bg-warm-900/80 backdrop-blur-sm flex items-center justify-center p-4">
       <div class="bg-white rounded-3xl max-w-sm w-full p-6 text-center shadow-2xl space-y-4">
         <div id="kiosk-confirm-badge" class="inline-block px-4 py-1.5 rounded-full text-sm font-extrabold"></div>
         <h3 id="kiosk-confirm-name" class="text-2xl font-extrabold text-warm-900"></h3>
         <p id="kiosk-confirm-time" class="text-lg font-mono font-bold text-wood-600"></p>
         <div class="rounded-2xl overflow-hidden border border-warm-200 bg-stone-900 aspect-[4/3] max-w-[240px] mx-auto"><img id="kiosk-confirm-photo" src="" alt="Selfie" class="w-full h-full object-cover" /></div>
         <p id="kiosk-confirm-note" class="text-xs font-semibold text-stone-500"></p>
-        <div class="w-full bg-warm-100 h-1.5 rounded-full overflow-hidden"><div id="kiosk-confirm-bar" class="h-full bg-wood-600 transition-all duration-[3000ms] ease-linear w-full"></div></div>
+        <div class="w-full bg-warm-100 h-1.5 rounded-full overflow-hidden"><div id="kiosk-confirm-bar" class="h-full bg-wood-600 transition-all duration-[1500ms] ease-linear w-full"></div></div>
       </div>
     </div>
   </div>
